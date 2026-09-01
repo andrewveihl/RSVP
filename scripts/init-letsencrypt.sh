@@ -15,8 +15,8 @@
 # One certificate is issued covering BOTH hostnames, because nginx serves them from the
 # same file. The admin name is taken from that file -- whatever `npm run set-domain` put
 # there -- so the two cannot drift apart; ADMIN_DOMAIN overrides it. It is a sibling
-# label rather than a sub-subdomain (`admin.rsvp.…`) because DuckDNS hands out one label
-# and a wildcard certificate would need a DNS-01 challenge.
+# label rather than a sub-subdomain (`admin.rsvp.example.org`) because DuckDNS hands
+# out one label, and a wildcard certificate would need a DNS-01 challenge.
 #
 # Afterwards the certbot container renews automatically; you never run this again.
 # =============================================================================
