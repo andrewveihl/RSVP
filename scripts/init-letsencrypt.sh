@@ -13,9 +13,10 @@
 #     ./scripts/init-letsencrypt.sh rsvp.example.duckdns.org you@example.com
 #
 # One certificate is issued covering BOTH hostnames, because nginx serves them from the
-# same file. The admin name defaults to admin-<domain> -- a sibling label rather than a
-# sub-subdomain, because DuckDNS hands out one label and a wildcard certificate would
-# need a DNS-01 challenge. Override it with ADMIN_DOMAIN if you use something else.
+# same file. The admin name is taken from that file -- whatever `npm run set-domain` put
+# there -- so the two cannot drift apart; ADMIN_DOMAIN overrides it. It is a sibling
+# label rather than a sub-subdomain (`admin.rsvp.…`) because DuckDNS hands out one label
+# and a wildcard certificate would need a DNS-01 challenge.
 #
 # Afterwards the certbot container renews automatically; you never run this again.
 # =============================================================================
@@ -27,7 +28,18 @@ cd "$(dirname "$0")/.."
 
 DOMAIN="${1:-}"
 EMAIL="${2:-}"
-# The admin app hostname. Defaults to admin-<domain>, matching nginx/conf.d/default.conf.
+
+# The admin app hostname, read from the nginx config rather than assumed.
+#
+# That file is what actually gets served, and a certificate for a name nginx does not
+# answer to is worthless -- so the two must agree. `npm run set-domain` writes it; this
+# reads the second name off the HTTP block's server_name line. ADMIN_DOMAIN overrides,
+# and the admin-<domain> convention is the last resort.
+nginx_server_names() {
+	sed -n 's/^[[:space:]]*server_name[[:space:]]\{1,\}\([^;]*\);.*/\1/p' \
+		nginx/conf.d/default.conf | head -n 1
+}
+ADMIN_DOMAIN="${ADMIN_DOMAIN:-$(nginx_server_names | awk '{ print $2 }')}"
 ADMIN_DOMAIN="${ADMIN_DOMAIN:-admin-${DOMAIN}}"
 # Set STAGING=1 to use Let's Encrypt's staging CA while testing. Its rate limits
 # are far more forgiving, and getting locked out the week of a wedding is bad.
@@ -42,6 +54,19 @@ fi
 
 if ! docker compose version >/dev/null 2>&1; then
 	echo "docker compose is required but was not found." >&2
+	exit 1
+fi
+
+# The certificate must cover the names nginx serves, or browsers reject it even though
+# issuance succeeded. Catch the mismatch here rather than after a rate-limited request.
+NGINX_DOMAIN="$(nginx_server_names | awk '{ print $1 }')"
+if [ -n "$NGINX_DOMAIN" ] && [ "$NGINX_DOMAIN" != "$DOMAIN" ]; then
+	echo "nginx is configured for '$NGINX_DOMAIN', but you asked for '$DOMAIN'." >&2
+	echo "" >&2
+	echo "A certificate for a name nginx does not answer to would not help. Point the" >&2
+	echo "config at these hostnames first:" >&2
+	echo "" >&2
+	echo "    npm run set-domain $DOMAIN $ADMIN_DOMAIN" >&2
 	exit 1
 fi
 

@@ -7,7 +7,7 @@ Two applications, one database:
 | | | |
 |---|---|---|
 | **Guest site** | `andrew-madeline-rsvp.duckdns.org` | The public wedding website, plus a private RSVP reachable by a unique link per household |
-| **Admin** | `admin-andrew-madeline-rsvp.duckdns.org` | Guest list, RSVPs, invitations, address labels, reminder emails, website content, analytics and backups |
+| **Admin** | `andrew-madeline-rsvp-admin.duckdns.org` | Guest list, RSVPs, invitations, address labels, reminder emails, website content, analytics and backups |
 
 They run as separate containers and share exactly one thing: a SQLite file on a Docker
 volume. Nothing else crosses between them, so a problem on the public site cannot reach
@@ -21,12 +21,12 @@ the admin panel.
 git clone <your-repo> weddingRSVP && cd weddingRSVP
 
 cp .env.example .env          # then edit it -- ADMIN_PASSWORD at minimum
-npm run set-domain andrew-madeline-rsvp.duckdns.org
+npm run set-domain andrew-madeline-rsvp.duckdns.org andrew-madeline-rsvp-admin.duckdns.org
 
 # Both names must resolve to this server. On DuckDNS each domain is one label, so
 # these are TWO domains in the same account, not a domain and a subdomain:
 #   andrew-madeline-rsvp.duckdns.org
-#   admin-andrew-madeline-rsvp.duckdns.org
+#   andrew-madeline-rsvp-admin.duckdns.org
 
 ./scripts/init-letsencrypt.sh andrew-madeline-rsvp.duckdns.org you@example.com
 docker compose up -d
@@ -275,7 +275,7 @@ must set:
 ```ini
 ADMIN_PASSWORD=...
 PUBLIC_SITE_URL=https://andrew-madeline-rsvp.duckdns.org
-PUBLIC_ADMIN_URL=https://admin-andrew-madeline-rsvp.duckdns.org
+PUBLIC_ADMIN_URL=https://andrew-madeline-rsvp-admin.duckdns.org
 ```
 
 Both hostnames must exist. On DuckDNS each domain is a single label, so the admin name
