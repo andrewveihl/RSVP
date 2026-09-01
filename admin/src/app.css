@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Same palette as the guest site, so the two apps look like one product, but tuned for
+ * density: the admin is a working tool with tables and forms, not a page to be read.
+ *
+ * Dark mode follows the system setting through the same variable swap.
+ */
+@layer base {
+	:root {
+		--c-canvas: 251 250 247;
+		--c-surface: 255 255 255;
+		--c-sunken: 245 243 238;
+		--c-ink: 26 26 26;
+		--c-muted: 106 104 100;
+		--c-line: 232 228 223;
+		--c-accent: 138 154 123;
+		--c-accent-hover: 118 134 103;
+		--c-accent-soft: 236 240 231;
+		--c-ok: 76 145 90;
+		--c-warn: 186 138 58;
+		--c-bad: 190 82 74;
+		--c-shadow: 45 45 45;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--c-canvas: 24 24 24;
+			--c-surface: 35 35 35;
+			--c-sunken: 44 44 44;
+			--c-ink: 240 237 232;
+			--c-muted: 165 161 154;
+			--c-line: 60 58 55;
+			--c-accent: 163 180 146;
+			--c-accent-hover: 183 198 168;
+			--c-accent-soft: 46 52 43;
+			--c-ok: 124 186 137;
+			--c-warn: 214 172 96;
+			--c-bad: 226 128 118;
+			--c-shadow: 0 0 0;
+		}
+	}
+
+	/*
+	 * Chart colours are a separate palette from the interface palette, on purpose.
+	 *
+	 * The site's sage accent is beautiful and almost achromatic -- its OKLCH chroma is
+	 * 0.048, well under the 0.10 floor a data colour needs -- so as a series colour it
+	 * reads as grey and stops doing identity work. These three are the validated
+	 * categorical slots 1-3, which clear CVD separation, the normal-vision floor and
+	 * the lightness band in both themes. Aqua sits at 2.8:1 on the light surface, so
+	 * every chart that uses it carries direct labels and a table view.
+	 */
+	.viz {
+		--viz-1: #2a78d6;
+		--viz-2: #eb6834;
+		--viz-3: #1baf7a;
+		--viz-grid: rgb(var(--c-line));
+		--viz-surface: rgb(var(--c-surface));
+	}
+
+	@media (prefers-color-scheme: dark) {
+		.viz {
+			/* Re-stepped for the dark surface, not lightened automatically. */
+			--viz-1: #3987e5;
+			--viz-2: #d95926;
+			--viz-3: #199e70;
+		}
+	}
+
+	html {
+		-webkit-text-size-adjust: 100%;
+	}
+
+	body {
+		@apply bg-canvas font-sans text-[15px] text-ink;
+	}
+
+	:focus-visible {
+		@apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+@layer components {
+	.btn {
+		@apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2
+			text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed
+			disabled:opacity-50;
+	}
+
+	.btn-primary {
+		@apply btn bg-accent text-canvas hover:bg-accent-hover;
+	}
+
+	.btn-secondary {
+		@apply btn border border-line bg-surface text-ink hover:border-accent hover:text-accent;
+	}
+
+	.btn-ghost {
+		@apply btn text-muted hover:bg-sunken hover:text-ink;
+	}
+
+	.btn-danger {
+		@apply btn border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20;
+	}
+
+	.btn-sm {
+		@apply min-h-[36px] px-3 py-1.5 text-xs;
+	}
+
+	.field {
+		@apply min-h-[44px] w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+			text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none
+			focus:ring-2 focus:ring-accent/25;
+	}
+
+	select.field {
+		@apply pr-8;
+	}
+
+	textarea.field {
+		@apply min-h-[96px] leading-relaxed;
+	}
+
+	.card {
+		@apply rounded-xl border border-line bg-surface shadow-card;
+	}
+
+	.label {
+		@apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted;
+	}
+
+	.table-head {
+		@apply whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted;
+	}
+
+	.table-cell {
+		@apply px-3 py-2.5 align-middle;
+	}
+
+	.pill {
+		@apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium;
+	}
+
+	.pill-ok {
+		@apply pill bg-ok/10 text-ok;
+	}
+
+	.pill-bad {
+		@apply pill bg-bad/10 text-bad;
+	}
+
+	.pill-muted {
+		@apply pill bg-sunken text-muted;
+	}
+
+	.pill-warn {
+		@apply pill bg-warn/10 text-warn;
+	}
+}

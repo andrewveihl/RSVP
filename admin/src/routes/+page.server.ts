@@ -1,0 +1,102 @@
+import { fail, redirect } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
+import { getConfig } from '$shared/config';
+import { logger } from '$shared/logger';
+import { checkRateLimit } from '$shared/rate-limiter';
+import { CSRF_FIELD, verifyCsrf } from '$shared/csrf';
+import {
+	clearSessionCookie,
+	createSessionToken,
+	setSessionCookie,
+	verifyAdminPassword
+} from '$shared/session';
+import { logActivity } from '$shared/db';
+
+/**
+ * Admin login. A form action rather than an API route, since this is a real form
+ * submission and it should keep working with JavaScript disabled.
+ */
+
+/**
+ * Only ever redirect within this site -- never to an attacker-supplied absolute URL.
+ *
+ * A leading `//` is rejected as well as an absolute URL: `//evil.example` is a
+ * protocol-relative URL, which the browser would happily follow off-site.
+ */
+function safeRedirect(target: string | null): string {
+	if (!target) return '/dashboard';
+	if (!target.startsWith('/') || target.startsWith('//')) return '/dashboard';
+	return target;
+}
+
+export const load: PageServerLoad = ({ locals, url }) => {
+	if (locals.admin) redirect(303, safeRedirect(url.searchParams.get('redirectTo')));
+
+	return {
+		redirectTo: url.searchParams.get('redirectTo') ?? '',
+		configured: Boolean(getConfig().adminPassword),
+		siteUrl: getConfig().siteUrl
+	};
+};
+
+export const actions: Actions = {
+	// Named rather than `default`: SvelteKit forbids mixing a default action with
+	// named ones, and the nav needs a `logout` action.
+	login: async ({ request, cookies, locals }) => {
+		const form = await request.formData();
+		const password = form.get('password');
+		const redirectTo = safeRedirect(
+			typeof form.get('redirectTo') === 'string' ? (form.get('redirectTo') as string) : null
+		);
+
+		// The brief's tighter budget: five attempts per fifteen minutes, per IP.
+		const attempt = checkRateLimit(
+			`admin-login:${locals.clientIp}`,
+			getConfig().adminLoginRateLimit
+		);
+		if (!attempt.allowed) {
+			logger.warn(
+				{ event: 'admin.login_rate_limited', clientIp: locals.clientIp },
+				'admin login rate limited'
+			);
+			return fail(429, {
+				error: `Too many attempts. Try again in about ${Math.ceil(attempt.retryAfter / 60)} minute(s).`
+			});
+		}
+
+		if (!getConfig().adminPassword) {
+			return fail(500, { error: 'ADMIN_PASSWORD is not set on the server.' });
+		}
+
+		if (typeof password !== 'string' || !verifyAdminPassword(password)) {
+			logger.warn(
+				{ event: 'admin.login_failed', clientIp: locals.clientIp },
+				'admin login failed'
+			);
+			// One message for both "wrong password" and "no such account": there is only
+			// one account, so any difference here is pure information for a guesser.
+			return fail(401, { error: 'Incorrect password.' });
+		}
+
+		setSessionCookie(cookies, createSessionToken());
+		logger.info({ event: 'admin.login', clientIp: locals.clientIp }, 'admin logged in');
+		logActivity({
+			eventType: 'admin_login',
+			description: 'Signed in to the admin panel',
+			ipAddress: locals.clientIp
+		});
+		redirect(303, redirectTo);
+	},
+
+	logout: async ({ request, cookies, locals }) => {
+		// Logout changes state, so it gets the same CSRF treatment as everything else --
+		// otherwise any page on the internet could sign the couple out mid-task.
+		const form = await request.formData();
+		const csrf = verifyCsrf(request, cookies, form.get(CSRF_FIELD)?.toString() ?? null);
+		if (!csrf.ok) return fail(403, { error: 'Could not sign you out. Please reload and retry.' });
+
+		clearSessionCookie(cookies);
+		logger.info({ event: 'admin.logout', clientIp: locals.clientIp }, 'admin logged out');
+		redirect(303, '/');
+	}
+};

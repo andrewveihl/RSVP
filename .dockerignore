@@ -1,0 +1,39 @@
+# The build context is the repo root for both images, so this is the one that counts.
+
+node_modules
+*/node_modules
+
+# Build output -- the image builds its own.
+*/.svelte-kit
+*/build
+
+# Tests and their artefacts: not needed to build, and they slow the context transfer.
+*/tests
+*/test-results
+*/playwright-report
+*/playwright.config.ts
+.e2e-data
+*/.e2e-data
+
+# The database and its backups never belong in an image.
+data
+backups
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets and local-only material.
+.env
+.env.*
+!.env.example
+
+# TLS material lives in a bind mount, not in the image.
+certbot
+
+# Docs and VCS.
+.git
+.gitignore
+*.md
+!shared/README.md
+
+*.log

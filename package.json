@@ -1,0 +1,31 @@
+{
+	"name": "wedding-rsvp",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Wedding RSVP and wedding website for Andrew & Madeline: a public guest site with token-gated RSVP, and a separate admin app, sharing one SQLite database.",
+	"workspaces": [
+		"shared",
+		"app",
+		"admin"
+	],
+	"scripts": {
+		"dev": "npm run dev -w app",
+		"dev:admin": "npm run dev -w admin",
+		"dev:all": "node scripts/dev-all.js",
+		"build": "npm run build -w app && npm run build -w admin",
+		"check": "npm run check -w app && npm run check -w admin",
+		"test": "npm run test -w app",
+		"test:e2e": "npm run test:e2e -w app && npm run test:e2e -w admin",
+		"seed": "node --env-file-if-exists=.env scripts/seed.js",
+		"backup": "node --env-file-if-exists=.env scripts/backup.js",
+		"set-domain": "node scripts/set-domain.js"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"allowScripts": {
+		"better-sqlite3": true,
+		"esbuild": true
+	}
+}

@@ -1,0 +1,27 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+!.env.example
+
+# Local SQLite database and its WAL sidecars.
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Backups written by scripts/backup.js
+backups/
+
+# TLS material, fetched by scripts/init-letsencrypt.sh
+certbot/
+
+# Test artefacts
+test-results/
+playwright-report/
+.e2e-data/
+coverage/
+
+*.log
+.DS_Store

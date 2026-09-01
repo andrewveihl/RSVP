@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The palette lives in custom properties, and the Tailwind preset resolves every
+ * colour through them. Dark mode is therefore one block of variable overrides rather
+ * than a `dark:` variant on every element -- and because it keys off
+ * `prefers-color-scheme`, it follows the visitor's system setting with no toggle, no
+ * flash of the wrong theme on first paint, and no JavaScript.
+ *
+ * Values are bare `R G B` triplets so Tailwind's `<alpha-value>` can compose opacity.
+ */
+@layer base {
+	:root {
+		--c-canvas: 251 250 247;
+		--c-surface: 255 255 255;
+		--c-sunken: 245 243 238;
+		--c-ink: 26 26 26;
+		--c-muted: 106 104 100;
+		--c-line: 232 228 223;
+		--c-accent: 138 154 123;
+		--c-accent-hover: 118 134 103;
+		--c-accent-soft: 236 240 231;
+		--c-ok: 76 145 90;
+		--c-warn: 186 138 58;
+		--c-bad: 190 82 74;
+		--c-shadow: 45 45 45;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--c-canvas: 26 26 26;
+			--c-surface: 37 37 37;
+			--c-sunken: 45 45 45;
+			--c-ink: 240 237 232;
+			--c-muted: 168 164 157;
+			--c-line: 62 60 57;
+			/* Lifted, because the light-mode sage fails contrast on a dark ground. */
+			--c-accent: 163 180 146;
+			--c-accent-hover: 183 198 168;
+			--c-accent-soft: 46 52 43;
+			--c-ok: 124 186 137;
+			--c-warn: 214 172 96;
+			--c-bad: 226 128 118;
+			--c-shadow: 0 0 0;
+		}
+	}
+
+	html {
+		-webkit-text-size-adjust: 100%;
+		-webkit-tap-highlight-color: transparent;
+		scroll-behavior: smooth;
+	}
+
+	body {
+		@apply bg-canvas font-sans text-base font-normal text-ink;
+	}
+
+	h1,
+	h2,
+	h3 {
+		@apply font-display font-light;
+	}
+
+	:focus-visible {
+		@apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas;
+	}
+
+	/*
+	 * Respect a request for less motion. The flip clock checks this too and swaps to a
+	 * plain number swap, but this catches the scroll reveals and every transition.
+	 */
+	@media (prefers-reduced-motion: reduce) {
+		html {
+			scroll-behavior: auto;
+		}
+
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+@layer components {
+	/* Every interactive control clears a 48x48px touch target. */
+	.btn {
+		@apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full px-6 py-3
+			text-sm font-medium tracking-wide transition-colors duration-150
+			disabled:cursor-not-allowed disabled:opacity-50;
+	}
+
+	.btn-primary {
+		@apply btn bg-accent text-canvas hover:bg-accent-hover;
+	}
+
+	.btn-secondary {
+		@apply btn border border-line bg-surface text-ink hover:border-accent hover:text-accent;
+	}
+
+	.btn-ghost {
+		@apply btn text-muted hover:text-ink;
+	}
+
+	.field {
+		@apply min-h-[48px] w-full rounded-xl border border-line bg-surface px-4 py-3 text-base
+			text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none
+			focus:ring-2 focus:ring-accent/30;
+	}
+
+	.card {
+		@apply rounded-2xl border border-line bg-surface shadow-card;
+	}
+
+	.label {
+		@apply mb-1.5 block text-sm font-medium text-muted;
+	}
+
+	/* The small caps rule that heads every section of the guest site. */
+	.eyebrow {
+		@apply text-xs font-medium uppercase tracking-widest text-muted;
+	}
+
+	.section {
+		@apply mx-auto w-full max-w-3xl px-5 py-16 sm:py-24;
+	}
+
+	.prose-site p {
+		@apply mb-4 leading-relaxed text-ink/90;
+	}
+
+	.prose-site p:last-child {
+		@apply mb-0;
+	}
+}
+
+/*
+ * Scroll reveal. The elements start visible and are hidden by this class only once
+ * JavaScript has added it, so a visitor without JS reads a complete page rather than a
+ * blank one -- the whole content site works without scripts.
+ */
+.reveal {
+	opacity: 0;
+	transform: translateY(16px);
+	transition: opacity 700ms ease-out, transform 700ms ease-out;
+}
+
+.reveal.is-visible {
+	opacity: 1;
+	transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.reveal {
+		opacity: 1;
+		transform: none;
+	}
+}

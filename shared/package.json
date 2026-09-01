@@ -1,0 +1,20 @@
+{
+	"name": "@rsvp/shared",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Server-side code shared by the guest wedding site and the admin app: the SQLite layer, tokens, CSRF, rate limiting, sessions, email, CSV, QR codes, PDF generation and backups.",
+	"exports": {
+		"./*": "./src/*.ts"
+	},
+	"dependencies": {
+		"better-sqlite3": "^12.11.1",
+		"nodemailer": "^6.9.16",
+		"pdf-lib": "^1.17.1",
+		"pino": "^9.5.0",
+		"qrcode": "^1.5.4"
+	},
+	"peerDependencies": {
+		"@sveltejs/kit": "^2.9.0"
+	}
+}

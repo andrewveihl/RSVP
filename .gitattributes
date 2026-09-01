@@ -1,0 +1,24 @@
+# Line endings are normalised to LF in the repository, whatever the checkout platform
+# does locally.
+#
+# This is not cosmetic. The shell script and the Dockerfiles are executed by Linux --
+# inside the containers and on the Proxmox host -- and a CRLF committed into a script
+# with a `#!/bin/sh` line makes the kernel look for an interpreter called `/bin/sh\r`,
+# which fails with a "bad interpreter" or "not found" error that points nowhere useful.
+
+* text=auto eol=lf
+
+# Executed on Linux: LF, always, regardless of anyone's core.autocrlf.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf
+*.inc text eol=lf
+
+# Binary, so never touched.
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.woff2 binary
+*.pdf binary
+*.db binary
