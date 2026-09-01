@@ -56,14 +56,17 @@ test('a household accepts, and the reply is stored', async ({ page }) => {
 
 	await expect(page.getByText(household.name)).toBeVisible();
 
-	await page.getByLabel('Joyfully accepts').check();
-	await page.getByLabel('Guests from your household').fill('3');
-	await page.getByLabel('Additional guests').fill('1');
-	await expect(page.getByText('4 people in total.')).toBeVisible();
+	await page.getByText('Joyfully accepts').click();
+
+	// The count is a stepper, so there is no keyboard to open over the button.
+	// The household is invited for 3, so stepping up once makes one plus-one.
+	await page.getByRole('button', { name: 'One more' }).click();
+	await expect(page.locator('[aria-live="polite"]').first()).toHaveText('4');
 
 	await page.getByRole('button', { name: 'Send our reply' }).click();
 
 	await expect(page.getByTestId('rsvp-confirmation')).toContainText('Thank you!');
+	// One number in, the split derived against the invited party size of 3.
 	expect(storedRsvp(household.token)).toMatchObject({
 		attending: 1,
 		guest_count: 3,
@@ -81,9 +84,7 @@ test('a household declines, and the counts are zeroed', async ({ page }) => {
 	});
 	await page.goto(`/rsvp/${household.token}`);
 
-	await page.getByLabel('Regretfully declines').check();
-	await expect(page.getByText("We'll miss you -- thank you for telling us.")).toBeVisible();
-
+	await page.getByText('Regretfully declines').click();
 	await page.getByRole('button', { name: /reply/ }).click();
 
 	await expect(page.getByTestId('rsvp-confirmation')).toContainText("We'll miss you!");
@@ -102,18 +103,19 @@ test('a household that already replied sees its answer and can change it', async
 	});
 	await page.goto(`/rsvp/${household.token}`);
 
-	await expect(page.getByText('You already replied')).toBeVisible();
-	await expect(page.getByText('yes, 3 guest(s)')).toBeVisible();
+	await expect(page.getByText('You replied')).toBeVisible();
 
-	// The form starts from the previous answer rather than blank.
-	await expect(page.getByLabel('Joyfully accepts')).toBeChecked();
-	await expect(page.getByLabel('Guests from your household')).toHaveValue('2');
+	// The form starts from the previous answer rather than blank, and shows the guest
+	// one total rather than our internal split.
+	await expect(page.locator('input[value="yes"]')).toBeChecked();
+	await expect(page.locator('[aria-live="polite"]').first()).toHaveText('3');
 
-	await page.getByLabel('Guests from your household').fill('4');
+	await page.getByRole('button', { name: 'One more' }).click();
 	await page.getByRole('button', { name: 'Update our reply' }).click();
 
 	await expect(page.getByTestId('rsvp-confirmation')).toContainText('Thank you!');
-	expect(storedRsvp(household.token)).toMatchObject({ guest_count: 4 });
+	// Invited 3, four coming: three of them plus one extra.
+	expect(storedRsvp(household.token)).toMatchObject({ guest_count: 3, plus_one_count: 1 });
 });
 
 test('updating replaces the reply rather than adding a second one', async ({ page }) => {
@@ -124,8 +126,7 @@ test('updating replaces the reply rather than adding a second one', async ({ pag
 	});
 
 	await page.goto(`/rsvp/${household.token}`);
-	await page.getByLabel('Joyfully accepts').check();
-	await page.getByLabel('Guests from your household').fill('2');
+	await page.getByText('Joyfully accepts').click();
 	await page.getByRole('button', { name: 'Update our reply' }).click();
 	await expect(page.getByTestId('rsvp-confirmation')).toBeVisible();
 
@@ -140,14 +141,50 @@ test('the RSVP form submits without JavaScript', async ({ browser }) => {
 	const household = createHousehold('The Scriptless Family');
 
 	await page.goto(`/rsvp/${household.token}`);
-	await page.getByLabel('Joyfully accepts').check();
-	await page.getByLabel('Guests from your household').fill('2');
+	// The radio is visually hidden and driven by its label, so the label is what a
+	// person clicks -- with or without scripts.
+	await page.getByText('Joyfully accepts').click();
+	// And with no JavaScript the stepper buttons are inert, so the real number input
+	// takes their place on screen. That swap is the whole point of keeping one.
+	await expect(page.locator('#guestTotal')).toBeVisible();
+	await page.locator('#guestTotal').fill('2');
 	await page.getByRole('button', { name: /reply/ }).click();
 
 	await expect(page.getByTestId('rsvp-confirmation')).toContainText('Thank you!');
 	expect(storedRsvp(household.token)).toMatchObject({ attending: 1, guest_count: 2 });
 
 	await context.close();
+});
+
+test('the confirmation offers a calendar file and a way to change the reply', async ({ page }) => {
+	const household = createHousehold('The Calendar Family');
+
+	await page.goto(`/rsvp/${household.token}`);
+	await page.getByText('Joyfully accepts').click();
+	await page.getByRole('button', { name: /reply/ }).click();
+	await expect(page.getByTestId('rsvp-confirmation')).toBeVisible();
+
+	const download = page.waitForEvent('download');
+	await page.getByRole('link', { name: 'Add to calendar' }).click();
+	expect((await download).suggestedFilename()).toBe('wedding.ics');
+
+	await page.getByRole('link', { name: 'Change your reply' }).click();
+	await expect(page.locator('input[value="yes"]')).toBeChecked();
+});
+
+test('the RSVP pages carry no site navigation', async ({ page }) => {
+	const household = createHousehold('The Uncluttered Family');
+	await page.goto(`/rsvp/${household.token}`);
+
+	// The nav and footer were a third of a phone viewport on a single-question page.
+	await expect(page.locator('nav')).toHaveCount(0);
+	await expect(page.locator('main')).toHaveCount(0);
+
+	// And the whole thing fits without scrolling.
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollHeight - window.innerHeight
+	);
+	expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test('an unknown token offers the name look-up instead of an error', async ({ page }) => {
@@ -230,7 +267,7 @@ test('the honeypot is filled only by something automated', async ({ page, reques
 		form: {
 			csrf_token: csrf,
 			attending: 'yes',
-			guestCount: '2',
+			guestTotal: '2',
 			// The hidden field a real browser never fills in.
 			website: 'http://spam.example'
 		}
@@ -249,7 +286,7 @@ test('a submission without a CSRF token is rejected', async ({ request }) => {
 		// `Accept: text/html` makes SvelteKit answer like a browser form post, so the
 		// rejection shows up as the response status rather than inside a JSON envelope.
 		headers: { origin: 'http://127.0.0.1:4273', accept: 'text/html' },
-		form: { attending: 'yes', guestCount: '2' }
+		form: { attending: 'yes', guestTotal: '2' }
 	});
 
 	expect(response.status()).toBe(403);
@@ -269,7 +306,7 @@ test('a cross-origin submission is rejected', async ({ page, request }) => {
 			accept: 'text/html',
 			cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
 		},
-		form: { csrf_token: csrf, attending: 'yes', guestCount: '2' }
+		form: { csrf_token: csrf, attending: 'yes', guestTotal: '2' }
 	});
 
 	expect(response.status()).toBe(403);

@@ -6,15 +6,21 @@ import { addressLines, buildLabelPdf, LABEL_LAYOUTS } from '$shared/labels';
 import { qrPng, qrSvg, qrDataUrl } from '$shared/qr';
 import { createZip, safeEntryName } from '$shared/zip';
 import { crc32 } from '$shared/crc32';
-import type { InvitationDetails } from '$shared/invitations';
+import { invitationSvg, previewMeasure } from '$shared/invitation-svg';
+import { layoutCard } from '$shared/invitation-layout';
+import { invitationTextFor } from '$shared/invitations';
+import { defaultSiteContent } from '$shared/defaults';
+import type { InvitationContent } from '$shared/types';
 
-const details: InvitationDetails = {
-	coupleNames: 'Andrew & Madeline',
+const SITE = 'https://rsvp.example.com';
+
+const invitation: InvitationContent = {
+	...defaultSiteContent().invitation,
+	names: 'Andrew & Madeline',
 	dateLine: 'Saturday, May 29, 2027',
 	timeLine: 'Four in the afternoon',
 	venueName: 'The Old Barn',
-	venueAddress: '12 Long Lane, Somewhere, ST 00000',
-	siteUrl: 'https://rsvp.example.com'
+	venueAddress: '12 Long Lane, Somewhere, ST 00000'
 };
 
 beforeEach(freshDatabase);
@@ -41,7 +47,7 @@ describe('invitations', () => {
 	it('produces a valid PDF with a page per household', async () => {
 		const households = [makeHousehold({ name: 'A' }), makeHousehold({ name: 'B' }), makeHousehold({ name: 'C' })];
 
-		const pdf = await buildInvitationPdf(households, details, { widthIn: 5, heightIn: 7, variant: 'full' });
+		const pdf = await buildInvitationPdf(households, invitation, SITE, { widthIn: 5, heightIn: 7, variant: 'full' });
 
 		expect(Buffer.from(pdf.slice(0, 5)).toString()).toBe('%PDF-');
 		expect(await pdfPageCount(pdf)).toBe(3);
@@ -49,7 +55,7 @@ describe('invitations', () => {
 
 	it('renders the insert variant', async () => {
 		const household = makeHousehold();
-		const pdf = await buildSingleInvitation(household, details, {
+		const pdf = await buildSingleInvitation(household, invitation, SITE, {
 			widthIn: CARD_PRESETS['insert-2.5x3.5'].width,
 			heightIn: CARD_PRESETS['insert-2.5x3.5'].height,
 			variant: 'insert'
@@ -61,13 +67,13 @@ describe('invitations', () => {
 
 	it('still produces an openable file when nothing is selected', async () => {
 		// An empty PDF is not a valid PDF; a page saying so at least opens.
-		const pdf = await buildInvitationPdf([], details, { widthIn: 5, heightIn: 7, variant: 'full' });
+		const pdf = await buildInvitationPdf([], invitation, SITE, { widthIn: 5, heightIn: 7, variant: 'full' });
 		expect(await pdfPageCount(pdf)).toBe(1);
 	});
 
 	it('survives absurdly long names without throwing', async () => {
 		const household = makeHousehold({ name: 'The '.repeat(60) + 'Family' });
-		const pdf = await buildSingleInvitation(household, details, {
+		const pdf = await buildSingleInvitation(household, invitation, SITE, {
 			widthIn: 4,
 			heightIn: 6,
 			variant: 'full'
@@ -189,5 +195,130 @@ describe('zip writer', () => {
 		expect(safeEntryName('../../etc/passwd', 'pdf')).toBe('etc-passwd.pdf');
 		expect(safeEntryName('a/b\\c:d*e?f"g<h>i|j', 'png')).toBe('a-b-c-d-e-f-g-h-i-j.png');
 		expect(safeEntryName('   ', 'pdf')).toBe('invitation.pdf');
+	});
+});
+
+describe('the invitation layout, shared by the PDF and the preview', () => {
+	/**
+	 * The preview's whole value is that it cannot disagree with the print. These pin
+	 * that down: same layout module, same numbers, whichever renderer consumes them.
+	 */
+	const text = () =>
+		invitationTextFor(invitation, makeHousehold({ name: 'The Whitfields' }), SITE);
+
+	it('places the same operations regardless of who draws them', () => {
+		const geometry = { widthIn: 5, heightIn: 7, variant: 'full' as const };
+		// One card's text, laid out twice -- a fresh household each time would carry a
+		// fresh token, and the URLs would differ for reasons that are not the layout's.
+		const card = text();
+		const measure = (value: string, _face: string, size: number) => value.length * size * 0.5;
+
+		const a = layoutCard(card, geometry, measure as never);
+		const b = layoutCard(card, geometry, measure as never);
+
+		// Deterministic: the same input yields byte-identical geometry, which is what
+		// lets the SVG preview stand in for the PDF.
+		expect(JSON.stringify(a.ops)).toBe(JSON.stringify(b.ops));
+	});
+
+	it('puts the trim box inside a larger media box when there is bleed', () => {
+		const plain = layoutCard(text(), { widthIn: 5, heightIn: 7, variant: 'full' }, previewMeasure);
+		const press = layoutCard(
+			text(),
+			{ widthIn: 5, heightIn: 7, variant: 'full', bleedIn: 0.125, showCropMarks: true },
+			previewMeasure
+		);
+
+		expect(plain.mediaWidth).toBe(plain.width);
+		expect(plain.offsetX).toBe(0);
+
+		// 0.125in on each edge, at 72 points to the inch.
+		expect(press.mediaWidth).toBe(press.width + 18);
+		expect(press.offsetX).toBe(9);
+	});
+
+	it('draws crop marks only when there is bleed to draw them in', () => {
+		const marks = (options: Parameters<typeof layoutCard>[1]) =>
+			layoutCard(text(), options, previewMeasure).ops.filter(
+				(op) => op.kind === 'line' && op.colour === 'crop'
+			).length;
+
+		// Inside the trim they would be cut through and show on the finished card.
+		expect(marks({ widthIn: 5, heightIn: 7, variant: 'full', showCropMarks: true })).toBe(0);
+		// Four corners, two marks each.
+		expect(
+			marks({ widthIn: 5, heightIn: 7, variant: 'full', bleedIn: 0.125, showCropMarks: true })
+		).toBe(8);
+	});
+
+	it('honours the toggles', () => {
+		const kinds = (overrides: Partial<ReturnType<typeof text>>) => {
+			const ops = layoutCard(
+				{ ...text(), ...overrides },
+				{ widthIn: 5, heightIn: 7, variant: 'full' },
+				previewMeasure
+			).ops;
+			return {
+				images: ops.filter((op) => op.kind === 'image').length,
+				borders: ops.filter((op) => op.kind === 'rect' && op.stroke).length,
+				texts: ops.filter((op) => op.kind === 'text').map((op) => (op as { text: string }).text)
+			};
+		};
+
+		expect(kinds({}).images).toBe(1);
+		expect(kinds({ showQr: false }).images).toBe(0);
+		expect(kinds({ showBorder: false }).borders).toBe(0);
+		expect(kinds({ showUrl: false }).texts).not.toContain(text().url);
+
+		// With the QR gone the household is still named -- otherwise the card would not
+		// say who it is for at all.
+		expect(kinds({ showQr: false }).texts).toContain('The Whitfields');
+	});
+
+	it('shrinks a long line rather than letting it run off the card', () => {
+		const long = { ...text(), names: 'Alexandrina & Bartholomew Featherstonehaugh-Cholmondeley' };
+		const shortNames = layoutCard(text(), { widthIn: 5, heightIn: 7, variant: 'full' }, previewMeasure);
+		const longNames = layoutCard(long, { widthIn: 5, heightIn: 7, variant: 'full' }, previewMeasure);
+
+		const sizeOf = (layout: typeof shortNames, needle: string) =>
+			(layout.ops.find((op) => op.kind === 'text' && (op as { text: string }).text === needle) as
+				| { size: number }
+				| undefined)?.size ?? 0;
+
+		expect(sizeOf(longNames, long.names)).toBeLessThan(sizeOf(shortNames, text().names));
+	});
+});
+
+describe('the SVG preview', () => {
+	it('renders the card as scalable SVG', () => {
+		const svg = invitationSvg(
+			invitationTextFor(invitation, makeHousehold({ name: 'The Whitfields' }), SITE),
+			{ widthIn: 5, heightIn: 7, variant: 'full' }
+		);
+
+		expect(svg.startsWith('<svg')).toBe(true);
+		// The viewBox is in PDF points, so the preview is dimensionally exact.
+		expect(svg).toContain('viewBox="0 0 360 504"');
+		expect(svg).toContain('The Whitfields');
+	});
+
+	it('escapes text rather than letting it become markup', () => {
+		const hostile = {
+			...invitationTextFor(invitation, makeHousehold({ name: 'x' }), SITE),
+			names: '<script>alert(1)</script>'
+		};
+
+		const svg = invitationSvg(hostile, { widthIn: 5, heightIn: 7, variant: 'full' });
+		expect(svg).not.toContain('<script>');
+		expect(svg).toContain('&lt;script&gt;');
+	});
+
+	it('leaves a placeholder when no QR code has loaded yet', () => {
+		const svg = invitationSvg(
+			invitationTextFor(invitation, makeHousehold({ name: 'x' }), SITE),
+			{ widthIn: 5, heightIn: 7, variant: 'full', qrDataUrl: null }
+		);
+		expect(svg).not.toContain('<image');
+		expect(svg).toContain('#f0f0f0');
 	});
 });

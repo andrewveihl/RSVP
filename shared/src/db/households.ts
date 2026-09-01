@@ -19,6 +19,7 @@ export interface HouseholdRow {
 	mailing_address: string | null;
 	party_size: number;
 	batch: string | null;
+	side: string | null;
 	notes: string | null;
 	invitation_sent: number;
 	invitation_sent_at: string | null;
@@ -36,6 +37,7 @@ export function rowToHousehold(row: HouseholdRow): Household {
 		mailingAddress: row.mailing_address,
 		partySize: row.party_size,
 		batch: row.batch,
+		side: row.side,
 		notes: row.notes,
 		invitationSent: row.invitation_sent === 1,
 		invitationSentAt: row.invitation_sent_at,
@@ -62,6 +64,7 @@ export interface NewHousehold {
 	mailingAddress?: string | null;
 	partySize?: number;
 	batch?: string | null;
+	side?: string | null;
 	notes?: string | null;
 	/** Supplied only by the CSV importer when re-importing a previous export. */
 	token?: string;
@@ -79,6 +82,7 @@ export function createHousehold(input: NewHousehold): Household {
 		mailing_address: input.mailingAddress ?? null,
 		party_size: input.partySize ?? 1,
 		batch: input.batch ?? null,
+		side: input.side ?? null,
 		notes: input.notes ?? null,
 		invitation_sent: 0,
 		invitation_sent_at: null,
@@ -88,10 +92,10 @@ export function createHousehold(input: NewHousehold): Household {
 
 	db.prepare(
 		`INSERT INTO households
-			(id, name, token, email, phone, mailing_address, party_size, batch, notes,
+			(id, name, token, email, phone, mailing_address, party_size, batch, side, notes,
 			 invitation_sent, invitation_sent_at, created_at, updated_at)
 		 VALUES
-			(@id, @name, @token, @email, @phone, @mailing_address, @party_size, @batch, @notes,
+			(@id, @name, @token, @email, @phone, @mailing_address, @party_size, @batch, @side, @notes,
 			 @invitation_sent, @invitation_sent_at, @created_at, @updated_at)`
 	).run(row);
 
@@ -130,6 +134,7 @@ export interface HouseholdUpdate {
 	mailingAddress?: string | null;
 	partySize?: number;
 	batch?: string | null;
+	side?: string | null;
 	notes?: string | null;
 }
 
@@ -140,6 +145,7 @@ const UPDATABLE: Record<keyof HouseholdUpdate, string> = {
 	mailingAddress: 'mailing_address',
 	partySize: 'party_size',
 	batch: 'batch',
+	side: 'side',
 	notes: 'notes'
 };
 
@@ -247,6 +253,7 @@ export interface ListOptions {
 	status?: RsvpStatus | 'all';
 	invitationSent?: boolean | 'all';
 	batch?: string;
+	side?: string;
 	sort?: HouseholdSort;
 	direction?: 'asc' | 'desc';
 	limit?: number;
@@ -304,6 +311,11 @@ function buildWhere(options: ListOptions): WhereClause {
 		params.push(options.batch);
 	}
 
+	if (options.side) {
+		clauses.push('h.side = ?');
+		params.push(options.side);
+	}
+
 	return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
 }
 
@@ -352,6 +364,14 @@ export function listBatches(): string[] {
 		.prepare("SELECT DISTINCT batch FROM households WHERE batch IS NOT NULL AND batch <> '' ORDER BY batch")
 		.all() as { batch: string }[];
 	return rows.map((row) => row.batch);
+}
+
+/** Every distinct side in use. Free-form, so this is whatever has been typed. */
+export function listSides(): string[] {
+	const rows = getDb()
+		.prepare("SELECT DISTINCT side FROM households WHERE side IS NOT NULL AND side <> '' ORDER BY side")
+		.all() as { side: string }[];
+	return rows.map((row) => row.side);
 }
 
 /**

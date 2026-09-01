@@ -21,10 +21,12 @@ import {
 	SAMPLE_CONTEXT,
 	contextForHousehold,
 	htmlToText,
+	QR_CID,
 	renderSubject,
 	renderTemplate,
 	wrapEmailHtml
 } from '$shared/email-template';
+import { qrPng } from '$shared/qr';
 import { isMailConfigured, sendBatch } from '$shared/mailer';
 
 export const load: PageServerLoad = ({ url }) => {
@@ -141,18 +143,36 @@ export const actions: Actions = {
 		const source = mergeSource();
 		const safeBody = sanitizeHtml(template.bodyHtml);
 
-		const messages = households.map((household) => {
-			const context = contextForHousehold(household, source);
-			const html = wrapEmailHtml(renderTemplate(safeBody, context), source.coupleNames);
-			return {
-				household,
-				message: {
-					subject: renderSubject(template.subject, context),
-					html,
-					text: htmlToText(html)
-				}
-			};
-		});
+		// Only generate a code when the template actually places one; every other send
+		// would otherwise carry a 4KB attachment nothing references.
+		const needsQr = /\{\{\s*qr_code\s*\}\}/i.test(safeBody);
+
+		const messages = await Promise.all(
+			households.map(async (household) => {
+				const context = contextForHousehold(household, source);
+				if (needsQr) context.qrCid = QR_CID;
+
+				const html = wrapEmailHtml(renderTemplate(safeBody, context), source.coupleNames);
+
+				return {
+					household,
+					message: {
+						subject: renderSubject(template.subject, context),
+						html,
+						text: htmlToText(html),
+						inlineImages: needsQr
+							? [
+									{
+										cid: QR_CID,
+										filename: 'rsvp.png',
+										content: await qrPng(context.rsvpLink, { size: 540 })
+									}
+								]
+							: undefined
+					}
+				};
+			})
+		);
 
 		const results = await sendBatch(messages, template.id);
 		const sent = results.filter((entry) => entry.status === 'sent').length;

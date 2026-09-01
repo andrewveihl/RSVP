@@ -11,6 +11,8 @@ import {
 } from '$shared/email-template';
 import { sanitizeHtml } from '$shared/sanitize';
 import { detectImageType } from '$shared/db/images';
+import { defaultSiteContent } from '$shared/defaults';
+import type { InvitationContent } from '$shared/types';
 import {
 	countdownTo,
 	formatLongDate,
@@ -204,5 +206,41 @@ describe('formatting', () => {
 		expect(percent(1, 4)).toBe(25);
 		// Guarded, so an empty guest list reads 0% rather than NaN%.
 		expect(percent(1, 0)).toBe(0);
+	});
+});
+
+describe('invitation wording inheritance', () => {
+	/**
+	 * "The venue" could otherwise live in three places -- Settings, Event Details and the
+	 * invitation -- with no rule about which wins. The rule is that the invitation starts
+	 * from the other two and keeps whatever is deliberately written on it.
+	 */
+	function fill(stored: Partial<InvitationContent>, facts: { venue: string; details: string }) {
+		const base = defaultSiteContent().invitation;
+		const merged = { ...base, ...stored };
+		const pick = (value: string, ...rest: string[]) =>
+			value.trim() || rest.find((candidate) => candidate.trim()) || '';
+
+		return { ...merged, venueName: pick(merged.venueName, facts.venue, facts.details) };
+	}
+
+	it('takes the venue from settings when the invitation has none', () => {
+		expect(fill({ venueName: '' }, { venue: 'The Old Barn', details: 'Ignored' }).venueName).toBe(
+			'The Old Barn'
+		);
+	});
+
+	it('falls back to the details page when settings are blank', () => {
+		expect(fill({ venueName: '' }, { venue: '', details: 'From details' }).venueName).toBe(
+			'From details'
+		);
+	});
+
+	it('keeps what was deliberately written on the card', () => {
+		// An invitation says things a website does not; once written it must stick.
+		expect(
+			fill({ venueName: 'The Barn at Willow Creek' }, { venue: 'The Old Barn', details: 'x' })
+				.venueName
+		).toBe('The Barn at Willow Creek');
 	});
 });

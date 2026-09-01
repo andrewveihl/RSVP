@@ -2,12 +2,13 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { CSRF_FIELD, verifyCsrf } from '$shared/csrf';
 import { getHouseholdsByIds, listHouseholds, logActivity } from '$shared/db';
-import { buildInvitationPdf, CARD_PRESETS, type CardOptions } from '$shared/invitations';
+import { BLEED_IN, buildInvitationPdf, CARD_PRESETS, type CardOptions } from '$shared/invitations';
+import { invitationContent } from '$lib/server/invitation-content';
 import { qrPng } from '$shared/qr';
+import { getConfig } from '$shared/config';
 import { rsvpUrl } from '$shared/tokens';
 import { createZip, safeEntryName } from '$shared/zip';
 import { clampInteger } from '$shared/sanitize';
-import { invitationDetails } from '$lib/server/invitation-details';
 
 /**
  * Generates invitation files.
@@ -24,11 +25,17 @@ function cardOptions(form: FormData): CardOptions {
 	const preset = form.get('preset')?.toString() ?? '5x7';
 	const known = CARD_PRESETS[preset as keyof typeof CARD_PRESETS];
 
+	// Bleed and crop marks are what a print shop asks for and what makes a home print
+	// look wrong, so they are opt-in per run rather than a stored setting.
+	const printShop = form.get('printShop') === '1';
+	const press = printShop ? { bleedIn: BLEED_IN, showCropMarks: true } : {};
+
 	if (preset === 'custom' || !known) {
 		return {
 			widthIn: clampInteger(form.get('width'), 1, 20, 5),
 			heightIn: clampInteger(form.get('height'), 1, 20, 7),
-			variant: form.get('variant') === 'insert' ? 'insert' : 'full'
+			variant: form.get('variant') === 'insert' ? 'insert' : 'full',
+			...press
 		};
 	}
 
@@ -38,7 +45,12 @@ function cardOptions(form: FormData): CardOptions {
 		// The insert presets carry their variant in the name, so picking one selects
 		// the layout as well as the size -- there is no way to ask for a 2.5x3.5 full
 		// invitation, which would be unreadable anyway.
-		variant: preset.startsWith('insert') ? 'insert' : form.get('variant') === 'insert' ? 'insert' : 'full'
+		variant: preset.startsWith('insert')
+			? 'insert'
+			: form.get('variant') === 'insert'
+				? 'insert'
+				: 'full',
+		...press
 	};
 }
 
@@ -55,7 +67,8 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	if (households.length === 0) error(400, 'Select at least one household.');
 
 	const options = cardOptions(form);
-	const details = invitationDetails();
+	const invitation = invitationContent();
+	const siteUrl = getConfig().siteUrl;
 	const format = form.get('format')?.toString() ?? 'pdf';
 
 	logActivity({
@@ -71,7 +84,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		const files = await Promise.all(
 			households.map(async (household) => ({
 				name: safeEntryName(household.name, 'pdf'),
-				data: await buildInvitationPdf([household], details, options)
+				data: await buildInvitationPdf([household], invitation, siteUrl, options)
 			}))
 		);
 		return fileResponse(createZip(dedupeNames(files)), 'application/zip', 'invitations.zip');
@@ -84,13 +97,13 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		const files = await Promise.all(
 			households.map(async (household) => ({
 				name: safeEntryName(household.name, 'png'),
-				data: new Uint8Array(await qrPng(rsvpUrl(details.siteUrl, household.token), { size: 1024 }))
+				data: new Uint8Array(await qrPng(rsvpUrl(siteUrl, household.token), { size: 1024 }))
 			}))
 		);
 		return fileResponse(createZip(dedupeNames(files)), 'application/zip', 'qr-codes.zip');
 	}
 
-	const pdf = await buildInvitationPdf(households, details, options);
+	const pdf = await buildInvitationPdf(households, invitation, siteUrl, options);
 	const filename =
 		households.length === 1
 			? safeEntryName(households[0].name, 'pdf')

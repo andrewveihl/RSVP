@@ -68,31 +68,21 @@
 				</div>
 			</fieldset>
 
-			<div class="grid gap-4 sm:grid-cols-2" class:hidden={attending === 'no'}>
-				<div>
-					<label class="label" for="guestCount">Guests from the household</label>
-					<input
-						id="guestCount"
-						name="guestCount"
-						type="number"
-						min="1"
-						max="50"
-						class="field"
-						value={editing.rsvp?.guestCount ?? editing.partySize}
-					/>
-				</div>
-				<div>
-					<label class="label" for="plusOneCount">Additional guests</label>
-					<input
-						id="plusOneCount"
-						name="plusOneCount"
-						type="number"
-						min="0"
-						max="50"
-						class="field"
-						value={editing.rsvp?.plusOneCount ?? 0}
-					/>
-				</div>
+			<div class:hidden={attending === 'no'}>
+				<label class="label" for="guestTotal">How many are coming?</label>
+				<input
+					id="guestTotal"
+					name="guestTotal"
+					type="number"
+					min="1"
+					max="50"
+					class="field sm:w-40"
+					value={editing.rsvp ? editing.rsvp.guestCount + editing.rsvp.plusOneCount : editing.partySize}
+				/>
+				<p class="mt-1 text-xs text-muted">
+					One number, exactly as the guest is asked. Invited {editing.partySize}; anything
+					above that is recorded as a plus-one.
+				</p>
 			</div>
 
 			<div class="flex flex-wrap gap-2">

@@ -15,8 +15,12 @@ export const MERGE_FIELDS = [
 	'wedding_date',
 	'venue',
 	'deadline',
-	'couple_names'
+	'couple_names',
+	'qr_code'
 ] as const;
+
+/** The content id the embedded QR image is attached under. */
+export const QR_CID = 'rsvp-qr';
 
 export type MergeField = (typeof MERGE_FIELDS)[number];
 
@@ -26,7 +30,8 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
 	wedding_date: 'The wedding date',
 	venue: 'The venue name',
 	deadline: 'The RSVP deadline',
-	couple_names: 'Your names'
+	couple_names: 'Your names',
+	qr_code: "The household's QR code, embedded in the message"
 };
 
 export interface MergeContext {
@@ -36,6 +41,8 @@ export interface MergeContext {
 	venue: string;
 	deadline: string;
 	coupleNames: string;
+	/** Set only when a QR image is attached to this particular message. */
+	qrCid?: string;
 }
 
 /** Sample values, so the template editor's preview shows something realistic. */
@@ -62,6 +69,15 @@ function valueFor(field: MergeField, context: MergeContext): string {
 			return context.deadline;
 		case 'couple_names':
 			return context.coupleNames;
+		case 'qr_code':
+			// An <img> rather than a URL: it is attached to the message and referenced by
+			// content id, so it shows even in a client that blocks remote images.
+			// In a real send the code is attached and referenced by content id. In the
+			// editor's preview there is nothing attached, so a placeholder of the same
+			// size stands in -- a blank gap would read as a broken template.
+			return context.qrCid
+				? `<img src="cid:${context.qrCid}" alt="Scan to RSVP" width="180" height="180" style="display:block;margin:16px auto;border:1px solid #e8e4df;border-radius:8px" />`
+				: '<div style="width:180px;height:180px;margin:16px auto;border:1px dashed #d8d4cf;border-radius:8px;color:#8a8a8a;font-size:12px;text-align:center;line-height:180px">QR code</div>';
 	}
 }
 
@@ -86,8 +102,9 @@ export function renderTemplate(
 		if (!(MERGE_FIELDS as readonly string[]).includes(field)) return match;
 
 		const value = valueFor(field, context);
-		// The link is a URL we built; escaping it would break the `&` in a query string.
-		if (!escape || field === 'rsvp_link') return value;
+		// Two fields are ours, not the couple's: the link is a URL we built (escaping it
+		// would break an `&` in a query string) and the QR field is markup we emitted.
+		if (!escape || field === 'rsvp_link' || field === 'qr_code') return value;
 		return escapeHtml(value);
 	});
 }

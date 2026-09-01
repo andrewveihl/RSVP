@@ -82,6 +82,18 @@
 			/>
 		</div>
 
+		<div>
+			<label class="label" for="side">Side</label>
+			<input
+				id="side"
+				name="side"
+				class="field"
+				list="side-options"
+				placeholder="Optional"
+				value={household?.side ?? ''}
+			/>
+		</div>
+
 		<div class="sm:col-span-2">
 			<label class="label" for="mailingAddress">Mailing address</label>
 			<textarea

@@ -64,8 +64,8 @@ test('a guest is told the deadline has passed, and the form is gone', async ({ p
 	await expect(page.getByTestId('rsvp-closed')).toBeVisible();
 	await expect(page.getByRole('heading', { level: 1 })).toContainText('The deadline has passed');
 	// Given a way to reach the couple rather than just a dead end.
-	await expect(page.getByRole('link', { name: /Email/ })).toBeVisible();
-	await expect(page.getByLabel('Joyfully accepts')).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'Get in touch' })).toBeVisible();
+	await expect(page.getByText('Joyfully accepts')).toHaveCount(0);
 });
 
 test('a submission after the deadline is refused', async ({ request }) => {

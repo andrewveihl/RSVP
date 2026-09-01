@@ -129,11 +129,11 @@ test('the site is usable on a narrow screen', async ({ page }) => {
 	);
 	expect(overflow).toBeLessThanOrEqual(1);
 
-	// The desktop links are hidden; the disclosure menu takes over. Located by tag
-	// because <summary> has no stable implicit ARIA role across browsers.
-	await page.locator('summary[aria-label="Menu"]').click();
-	// Scoped to the disclosure: the desktop list is still in the DOM, just hidden.
-	await expect(page.locator('details').getByRole('link', { name: 'Our Story' })).toBeVisible();
+	// Every destination is visible without a tap: the nav is one horizontal strip that
+	// scrolls sideways, not a hamburger hiding the list behind a disclosure.
+	await expect(page.locator('summary')).toHaveCount(0);
+	await expect(page.getByRole('navigation').getByRole('link', { name: 'Our Story' })).toBeVisible();
+	await expect(page.getByRole('navigation').getByRole('link', { name: 'RSVP' })).toBeVisible();
 });
 
 test('dark mode uses the dark palette', async ({ browser }) => {

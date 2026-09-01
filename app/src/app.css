@@ -26,6 +26,10 @@
 		--c-warn: 186 138 58;
 		--c-bad: 190 82 74;
 		--c-shadow: 45 45 45;
+
+		/* The theme editor overrides these two; everything else reads them. */
+		--font-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+		--font-body: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 	}
 
 	@media (prefers-color-scheme: dark) {

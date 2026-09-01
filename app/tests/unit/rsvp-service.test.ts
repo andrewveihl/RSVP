@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dropDatabase, freshDatabase, makeHousehold } from './helpers';
-import { MAX_GUESTS, submitRsvp, validateRsvpForm } from '$shared/rsvp-service';
+import { MAX_GUESTS, splitGuests, submitRsvp, validateRsvpForm } from '$shared/rsvp-service';
 import { getRsvpForHousehold } from '$shared/db/rsvps';
 import { listActivity } from '$shared/db/activity';
 import { isRsvpClosed, rsvpDeadlineDate } from '$shared/config';
@@ -14,71 +14,87 @@ afterEach(() => {
 describe('validateRsvpForm', () => {
 	it('accepts the several ways a form can say yes', () => {
 		for (const value of ['yes', 'YES', 'true', '1', true]) {
-			expect(validateRsvpForm({ attending: value, guestCount: '2' })).toMatchObject({
+			expect(validateRsvpForm({ attending: value, guestTotal: '2' })).toMatchObject({
 				ok: true,
 				attending: true,
-				guestCount: 2
+				guestTotal: 2
 			});
 		}
 	});
 
-	it('zeroes the counts on a decline', () => {
-		expect(validateRsvpForm({ attending: 'no', guestCount: '4', plusOneCount: '2' })).toEqual({
+	it('zeroes the count on a decline', () => {
+		expect(validateRsvpForm({ attending: 'no', guestTotal: '4' })).toEqual({
 			ok: true,
 			attending: false,
-			guestCount: 0,
-			plusOneCount: 0
+			guestTotal: 0
 		});
 	});
 
 	it('rejects an unanswered form', () => {
-		const result = validateRsvpForm({ attending: null });
-		expect(result).toMatchObject({ ok: false, field: 'attending' });
+		expect(validateRsvpForm({ attending: null })).toMatchObject({ ok: false, field: 'attending' });
 	});
 
-	it('rejects a guest count that is not a plain integer', () => {
+	it('rejects a total that is not a plain integer', () => {
 		for (const value of ['', '0', '-1', '2.5', '3abc', '1e3', String(MAX_GUESTS + 1)]) {
-			const result = validateRsvpForm({ attending: 'yes', guestCount: value });
-			expect(result, `for ${JSON.stringify(value)}`).toMatchObject({ ok: false, field: 'guestCount' });
+			const result = validateRsvpForm({ attending: 'yes', guestTotal: value });
+			expect(result, `for ${JSON.stringify(value)}`).toMatchObject({
+				ok: false,
+				field: 'guestTotal'
+			});
 		}
 	});
 
-	it('allows a large but uncapped-in-spirit number of plus-ones', () => {
-		expect(validateRsvpForm({ attending: 'yes', guestCount: '2', plusOneCount: '12' })).toMatchObject({
+	it('accepts a party larger than the one invited', () => {
+		// Extras are uncapped by design; the split against the invited size happens later.
+		expect(validateRsvpForm({ attending: 'yes', guestTotal: '12' })).toMatchObject({
 			ok: true,
-			plusOneCount: 12
-		});
-	});
-
-	it('defaults the plus-one count to zero when absent', () => {
-		expect(validateRsvpForm({ attending: 'yes', guestCount: '1' })).toMatchObject({
-			ok: true,
-			plusOneCount: 0
+			guestTotal: 12
 		});
 	});
 
 	it('fails silently when the honeypot is filled', () => {
-		const result = validateRsvpForm({ attending: 'yes', guestCount: '2', honeypot: 'http://spam' });
+		const result = validateRsvpForm({ attending: 'yes', guestTotal: '2', honeypot: 'http://spam' });
 		expect(result).toMatchObject({ ok: false, silent: true });
 	});
 
 	it('ignores an empty honeypot, which is what a real browser sends', () => {
-		expect(validateRsvpForm({ attending: 'yes', guestCount: '2', honeypot: '' })).toMatchObject({
+		expect(validateRsvpForm({ attending: 'yes', guestTotal: '2', honeypot: '' })).toMatchObject({
 			ok: true
 		});
 	});
 });
 
+describe('splitGuests', () => {
+	/**
+	 * The guest answers one number; the couple need two. This is the whole of that
+	 * translation, so it is worth pinning down precisely.
+	 */
+	it('counts everything up to the invited size as the household', () => {
+		expect(splitGuests(2, 4)).toEqual({ guestCount: 2, plusOneCount: 0 });
+		expect(splitGuests(4, 4)).toEqual({ guestCount: 4, plusOneCount: 0 });
+	});
+
+	it('counts anything beyond the invited size as a plus-one', () => {
+		expect(splitGuests(6, 4)).toEqual({ guestCount: 4, plusOneCount: 2 });
+		expect(splitGuests(2, 1)).toEqual({ guestCount: 1, plusOneCount: 1 });
+	});
+
+	it('treats a party size of zero as one, rather than making everyone a plus-one', () => {
+		expect(splitGuests(2, 0)).toEqual({ guestCount: 1, plusOneCount: 1 });
+	});
+});
+
 describe('submitRsvp', () => {
-	it('stores the reply and logs it', () => {
-		const household = makeHousehold({ name: 'The Smiths' });
+	it('stores the reply, split against the invited party size', () => {
+		const household = makeHousehold({ name: 'The Smiths', partySize: 2 });
 
 		const outcome = submitRsvp(
-			{ attending: 'yes', guestCount: '2', plusOneCount: '1' },
+			{ attending: 'yes', guestTotal: '3' },
 			{ household, ipAddress: '203.0.113.9', userAgent: 'test' }
 		);
 
 		expect(outcome.ok).toBe(true);
+		// Invited 2, three came: two of them plus one extra.
 		expect(getRsvpForHousehold(household.id)).toMatchObject({
 			attending: true,
 			guestCount: 2,
@@ -89,11 +105,23 @@ describe('submitRsvp', () => {
 		const entries = listActivity();
 		expect(entries[0].eventType).toBe('rsvp_submitted');
 		expect(entries[0].description).toContain('The Smiths');
+		// The log records the number the guest actually gave.
+		expect(entries[0].description).toContain('attending (3)');
+	});
+
+	it('records no plus-ones when the party arrives as invited', () => {
+		const household = makeHousehold({ partySize: 4 });
+		submitRsvp({ attending: 'yes', guestTotal: '4' }, { household });
+
+		expect(getRsvpForHousehold(household.id)).toMatchObject({
+			guestCount: 4,
+			plusOneCount: 0
+		});
 	});
 
 	it('logs a second reply as an update, not a new submission', () => {
 		const household = makeHousehold();
-		submitRsvp({ attending: 'yes', guestCount: '2' }, { household });
+		submitRsvp({ attending: 'yes', guestTotal: '2' }, { household });
 		submitRsvp({ attending: 'no' }, { household });
 
 		expect(listActivity()[0].eventType).toBe('rsvp_updated');
@@ -103,7 +131,7 @@ describe('submitRsvp', () => {
 		process.env.RSVP_DEADLINE = '2020-01-01';
 		const household = makeHousehold();
 
-		const outcome = submitRsvp({ attending: 'yes', guestCount: '2' }, { household });
+		const outcome = submitRsvp({ attending: 'yes', guestTotal: '2' }, { household });
 
 		expect(outcome).toMatchObject({ ok: false, reason: 'closed' });
 		expect(getRsvpForHousehold(household.id)).toBeNull();
@@ -113,7 +141,7 @@ describe('submitRsvp', () => {
 		process.env.RSVP_DEADLINE = '2020-01-01';
 		const household = makeHousehold();
 
-		const outcome = submitRsvp({ attending: 'yes', guestCount: '2' }, { household, asAdmin: true });
+		const outcome = submitRsvp({ attending: 'yes', guestTotal: '2' }, { household, asAdmin: true });
 
 		expect(outcome.ok).toBe(true);
 		expect(listActivity()[0].description).toContain('entered by admin');
@@ -121,7 +149,7 @@ describe('submitRsvp', () => {
 
 	it('stores nothing when the honeypot trips', () => {
 		const household = makeHousehold();
-		const outcome = submitRsvp({ attending: 'yes', guestCount: '2', honeypot: 'x' }, { household });
+		const outcome = submitRsvp({ attending: 'yes', guestTotal: '2', honeypot: 'x' }, { household });
 
 		expect(outcome).toMatchObject({ ok: false, silent: true });
 		expect(getRsvpForHousehold(household.id)).toBeNull();

@@ -25,16 +25,30 @@ export interface SiteEnvelope {
 	nav: { href: string; label: string }[];
 }
 
-/** Nav entries, in the order they appear, each gated by its section toggle. */
-const NAV: { href: string; label: string; section: keyof SectionToggles | null }[] = [
-	{ href: '/our-story', label: 'Our Story', section: 'story' },
-	{ href: '/details', label: 'Details', section: 'details' },
-	{ href: '/wedding-party', label: 'Wedding Party', section: 'party' },
-	{ href: '/gallery', label: 'Photos', section: 'gallery' },
-	{ href: '/registry', label: 'Registry', section: 'registry' },
-	{ href: '/faq', label: 'FAQ', section: 'faq' },
-	{ href: '/rsvp', label: 'RSVP', section: null }
-];
+/** Every content section, keyed the way the theme's `order` array names them. */
+const NAV: Record<keyof SectionToggles, { href: string; label: string } | null> = {
+	story: { href: '/our-story', label: 'Our Story' },
+	details: { href: '/details', label: 'Details' },
+	party: { href: '/wedding-party', label: 'Wedding Party' },
+	gallery: { href: '/gallery', label: 'Photos' },
+	registry: { href: '/registry', label: 'Registry' },
+	faq: { href: '/faq', label: 'FAQ' },
+	// Not a page of its own -- the countdown lives on the home page.
+	countdown: null
+};
+
+/**
+ * The section keys in the couple's chosen order, dropping unknown entries and adding
+ * any they left out. Defensive because the order is stored JSON that a future version
+ * -- or a hand-edited row -- could disagree with.
+ */
+function orderedSections(order: string[]): (keyof SectionToggles)[] {
+	const known = Object.keys(NAV) as (keyof SectionToggles)[];
+	const chosen = order.filter((key): key is keyof SectionToggles =>
+		(known as string[]).includes(key)
+	);
+	return [...chosen, ...known.filter((key) => !chosen.includes(key))];
+}
 
 export function loadSite(): SiteEnvelope {
 	const settings = effectiveSettings();
@@ -52,9 +66,15 @@ export function loadSite(): SiteEnvelope {
 		deadlineLabel: deadline ? formatLongDate(deadline) : '',
 		rsvpClosed: isRsvpClosed(new Date(), settings.rsvp_deadline),
 		contactEmail: settings.contact_email,
-		nav: NAV.filter((item) => item.section === null || content.sections[item.section]).map(
-			({ href, label }) => ({ href, label })
-		)
+		// Ordered by the theme, filtered by the toggles. An unknown key in the stored
+		// order is skipped, and any section the order forgets is appended, so a
+		// half-written order can never make a page unreachable.
+		nav: [
+			...orderedSections(content.theme.order)
+				.filter((key) => content.sections[key])
+				.map((key) => NAV[key]),
+			{ href: '/rsvp', label: content.wording.rsvpButton }
+		].filter((item): item is { href: string; label: string } => item !== null)
 	};
 }
 

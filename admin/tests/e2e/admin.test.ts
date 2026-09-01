@@ -48,6 +48,7 @@ test('every screen loads', async ({ page }) => {
 		['/qr', 'QR codes'],
 		['/emails', 'Reminder emails'],
 		['/content', 'Website'],
+		['/content/appearance', 'Website'],
 		['/log', 'Activity'],
 		['/backups', 'Backups'],
 		['/settings', 'Settings']
@@ -121,8 +122,9 @@ test('an admin records a reply on a household behalf', async ({ page }) => {
 		.getByRole('button', { name: 'Record' })
 		.click();
 
-	await page.getByLabel('Guests from the household').fill('2');
-	await page.getByLabel('Additional guests').fill('1');
+	// One number, exactly as the guest is asked; the split is derived from the invited
+	// party size of 3.
+	await page.getByLabel('How many are coming?').fill('4');
 	await page.getByRole('button', { name: 'Save reply' }).click();
 
 	await expect(page.getByRole('status')).toContainText(`Saved the reply for ${SEEDED.pending}.`);
@@ -133,7 +135,7 @@ test('an admin records a reply on a household behalf', async ({ page }) => {
 			 JOIN households h ON h.id = r.household_id WHERE h.name = ?`,
 			SEEDED.pending
 		)
-	).toMatchObject({ attending: 1, guest_count: 2, plus_one_count: 1 });
+	).toMatchObject({ attending: 1, guest_count: 3, plus_one_count: 1 });
 
 	// And the audit trail says a human typed it in.
 	expect(
@@ -358,9 +360,13 @@ test('settings save and take effect immediately', async ({ page }) => {
 	await page.getByRole('button', { name: 'Save settings' }).click();
 	await expect(page.getByRole('status')).toContainText('Settings saved.');
 
-	// No restart: the invitations screen reads the new venue straight away.
-	await page.goto('/invitations');
-	await expect(page.getByText('The Restored Barn')).toBeVisible();
+	// Stored, and live for the next read -- no restart, unlike the .env values.
+	expect(
+		query<{ value: string }>("SELECT value FROM settings WHERE key = 'venue_name'")
+	).toMatchObject({ value: 'The Restored Barn' });
+
+	await page.reload();
+	await expect(page.getByLabel('Venue', { exact: true })).toHaveValue('The Restored Barn');
 });
 
 test('the activity log records what happened, and filters', async ({ page }) => {

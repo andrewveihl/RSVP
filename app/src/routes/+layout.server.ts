@@ -1,5 +1,6 @@
 import type { LayoutServerLoad } from './$types';
 import { loadSite } from '$lib/server/site';
+import { themeCss } from '$shared/theme';
 
 /**
  * The site envelope -- navigation, names, dates -- for every page.
@@ -13,5 +14,9 @@ export const load: LayoutServerLoad = ({ url, setHeaders }) => {
 		setHeaders({ 'cache-control': 'public, max-age=0, must-revalidate' });
 	}
 
-	return { site: loadSite() };
+	const site = loadSite();
+
+	// Inlined rather than served as a file: it is a few hundred bytes that change
+	// whenever the couple edit the theme, so a cacheable request would need busting.
+	return { site, themeCss: themeCss(site.content.theme) };
 };

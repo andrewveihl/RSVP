@@ -114,6 +114,17 @@ export const MIGRATIONS: Migration[] = [
 				value TEXT NOT NULL
 			);
 		`
+	},
+	{
+		name: '002-household-side',
+		sql: `
+			-- Which side of the family a household belongs to. Optional and free-form
+			-- rather than a constrained set, because "both" and "friends of the couple"
+			-- are as real as either name.
+			ALTER TABLE households ADD COLUMN side TEXT;
+
+			CREATE INDEX idx_households_side ON households(side);
+		`
 	}
 ];
 

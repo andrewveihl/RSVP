@@ -2,8 +2,14 @@
 	let {
 		coupleNames,
 		weddingDateLabel,
-		contactEmail
-	}: { coupleNames: string; weddingDateLabel: string; contactEmail: string } = $props();
+		contactEmail,
+		note = 'Questions?'
+	}: {
+		coupleNames: string;
+		weddingDateLabel: string;
+		contactEmail: string;
+		note?: string;
+	} = $props();
 </script>
 
 <footer class="mt-auto border-t border-line/70 px-5 py-10 text-center">
@@ -13,7 +19,7 @@
 	{/if}
 	{#if contactEmail}
 		<p class="mt-4 text-sm text-muted">
-			Questions?
+			{note}
 			<a class="text-accent underline-offset-4 hover:underline" href="mailto:{contactEmail}">
 				{contactEmail}
 			</a>

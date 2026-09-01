@@ -124,6 +124,18 @@
 		</div>
 	{/if}
 
+	{#if data.sides.length > 0}
+		<div>
+			<label class="label" for="side">Side</label>
+			<select id="side" name="side" class="field">
+				<option value="">All</option>
+				{#each data.sides as side (side)}
+					<option value={side} selected={data.filters.side === side}>{side}</option>
+				{/each}
+			</select>
+		</div>
+	{/if}
+
 	<input type="hidden" name="sort" value={data.filters.sort} />
 	<input type="hidden" name="dir" value={data.filters.direction} />
 
@@ -272,6 +284,13 @@
 <datalist id="batch-options">
 	{#each data.batches as batch (batch)}
 		<option value={batch}></option>
+	{/each}
+</datalist>
+
+<!-- Free-form, so this only suggests what has already been typed elsewhere. -->
+<datalist id="side-options">
+	{#each data.sides as side (side)}
+		<option value={side}></option>
 	{/each}
 </datalist>
 

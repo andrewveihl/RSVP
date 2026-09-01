@@ -55,68 +55,62 @@
 		// until Svelte flushes, so submitting immediately would post whatever fragment
 		// the guest had typed -- and land them back on this same disambiguation list.
 		await tick();
-
-		// An exact name resolves to one household, so submitting straight away saves a
-		// second tap on a phone.
 		formEl?.requestSubmit();
 	}
 </script>
 
 <svelte:head>
 	<title>RSVP &middot; {data.site.coupleNames}</title>
-	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
 
-<div class="section max-w-lg">
-	<header class="text-center">
-		<p class="eyebrow">{data.site.coupleNames}</p>
-		<h1 class="mt-4 font-display text-4xl text-ink sm:text-5xl">Find your invitation</h1>
-		<p class="mt-4 text-muted">
-			Type the name on your invitation and we'll take you to your RSVP.
-		</p>
-	</header>
+<form
+	method="POST"
+	bind:this={formEl}
+	class="flex flex-1 flex-col"
+	use:enhance={() => {
+		submitting = true;
+		return async ({ update }) => {
+			await update({ reset: false });
+			submitting = false;
+		};
+	}}
+>
+	<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
 
-	{#if form?.error}
-		<p
-			class="mt-8 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-center text-sm text-bad"
-			role="alert"
-		>
-			{form.error}
-			{#if form.notFound && data.site.contactEmail}
-				<br />
-				Please contact us at
-				<a class="underline" href="mailto:{data.site.contactEmail}">{data.site.contactEmail}</a>.
-			{/if}
-		</p>
-	{/if}
+	<div class="flex-1 px-5 pb-4 pt-10">
+		<header class="text-center">
+			<h1 class="font-display text-2xl text-ink">Find your invitation</h1>
+			<p class="mt-2 text-sm text-muted">Type the name on your invitation.</p>
+		</header>
 
-	<form
-		method="POST"
-		bind:this={formEl}
-		class="mt-10"
-		use:enhance={() => {
-			submitting = true;
-			return async ({ update }) => {
-				await update({ reset: false });
-				submitting = false;
-			};
-		}}
-	>
-		<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
+		{#if form?.error}
+			<p
+				class="mt-6 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-center text-sm text-bad"
+				role="alert"
+			>
+				{form.error}
+				{#if form.notFound && data.site.contactEmail}
+					<br />
+					<a class="underline" href="mailto:{data.site.contactEmail}">{data.site.contactEmail}</a>
+				{/if}
+			</p>
+		{/if}
 
-		<label class="label" for="name">Name on the invitation</label>
-		<input
-			id="name"
-			name="name"
-			type="text"
-			class="field"
-			autocomplete="off"
-			autocapitalize="words"
-			placeholder="e.g. The Whitfield Family"
-			bind:value={name}
-			required
-			minlength="2"
-		/>
+		<div class="mt-6">
+			<label class="sr-only" for="name">Name on the invitation</label>
+			<input
+				id="name"
+				name="name"
+				type="text"
+				class="field text-center"
+				autocomplete="off"
+				autocapitalize="words"
+				placeholder="e.g. The Whitfield Family"
+				bind:value={name}
+				required
+				minlength="2"
+			/>
+		</div>
 
 		{#if suggestions.length > 0}
 			<ul class="mt-2 overflow-hidden rounded-xl border border-line bg-surface">
@@ -124,7 +118,7 @@
 					<li>
 						<button
 							type="button"
-							class="block w-full px-4 py-3 text-left text-sm text-ink transition-colors hover:bg-sunken"
+							class="block min-h-[48px] w-full px-4 py-3 text-left text-sm text-ink transition-colors hover:bg-sunken"
 							onclick={() => choose(match)}
 						>
 							{match}
@@ -134,31 +128,33 @@
 			</ul>
 		{/if}
 
-		<button type="submit" class="btn-primary mt-6 w-full" disabled={submitting}>
+		{#if form?.matches && form.matches.length > 0}
+			<!-- Several households share this name fragment. Names only -- picking one posts
+			     back through the same action, which is what resolves it to a token. -->
+			<section class="mt-8">
+				<p class="text-center text-xs text-muted">
+					More than one match for "{form.query}". Which one is you?
+				</p>
+				<ul class="mt-3 space-y-2">
+					{#each form.matches as match (match.name)}
+						<li>
+							<button
+								type="button"
+								class="card min-h-[52px] w-full px-4 py-3 text-left text-ink transition-colors hover:border-accent"
+								onclick={() => choose(match.name)}
+							>
+								{match.name}
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+	</div>
+
+	<div class="sticky bottom-0 border-t border-line/70 bg-canvas/95 px-5 py-3 backdrop-blur">
+		<button type="submit" class="btn-primary w-full" disabled={submitting}>
 			{submitting ? 'Looking...' : 'Find my invitation'}
 		</button>
-	</form>
-
-	{#if form?.matches && form.matches.length > 0}
-		<!-- Several households share this name fragment. Names only -- picking one posts
-		     back through the same action, which is what resolves it to a token. -->
-		<section class="mt-10">
-			<p class="text-center text-sm text-muted">
-				More than one match for "{form.query}". Which one is you?
-			</p>
-			<ul class="mt-4 space-y-2">
-				{#each form.matches as match (match.name)}
-					<li>
-						<button
-							type="button"
-							class="card w-full px-4 py-3 text-left text-ink transition-colors hover:border-accent"
-							onclick={() => choose(match.name)}
-						>
-							{match.name}
-						</button>
-					</li>
-				{/each}
-			</ul>
-		</section>
-	{/if}
-</div>
+	</div>
+</form>

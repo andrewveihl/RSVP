@@ -5,6 +5,7 @@
 
 	const tabs = [
 		{ href: '/content', label: 'Home & sections' },
+		{ href: '/content/appearance', label: 'Appearance' },
 		{ href: '/content/story', label: 'Our story' },
 		{ href: '/content/details', label: 'Event details' },
 		{ href: '/content/party', label: 'Wedding party' },

@@ -17,6 +17,8 @@ export interface Household {
 	partySize: number;
 	/** Free-form grouping ("Save the dates", "Batch 2") for per-batch analytics. */
 	batch: string | null;
+	/** Which side of the family, if the couple track it. Free-form and optional. */
+	side: string | null;
 	notes: string | null;
 	invitationSent: boolean;
 	invitationSentAt: string | null;
@@ -197,6 +199,59 @@ export interface FaqContent {
 	items: FaqItem[];
 }
 
+export interface InvitationContent {
+	/** Small caps line above the names. */
+	eyebrow: string;
+	/** Usually the couple's names, but the couple may word it their own way. */
+	names: string;
+	/** The line between the names and the date. */
+	inviteLine: string;
+	dateLine: string;
+	timeLine: string;
+	venueName: string;
+	venueAddress: string;
+	/** Caption printed under the QR code. */
+	qrCaption: string;
+	/** Whether the fallback URL is printed under the caption. */
+	showUrl: boolean;
+	showQr: boolean;
+	showBorder: boolean;
+	/** 'serif' or 'sans' -- which of the two standard PDF families to set it in. */
+	font: 'serif' | 'sans';
+	/** Hex colour for the rule, the border and the eyebrow. */
+	accent: string;
+}
+
+/** Look-and-feel choices that apply across the whole guest site. */
+export interface ThemeContent {
+	/** Hex accent, used for buttons, links and focus rings. */
+	accent: string;
+	/** Which pairing of display and body faces to set the site in. */
+	fonts: 'serif-sans' | 'sans-sans' | 'serif-serif';
+	/** How the home page hero treats its photo. */
+	hero: 'photo' | 'tint' | 'plain';
+	/** Section keys in the order they appear in the navigation. */
+	order: string[];
+}
+
+/** Wording that is not part of any one section: buttons, labels, the footer. */
+export interface WordingContent {
+	rsvpButton: string;
+	detailsButton: string;
+	footerNote: string;
+	rsvpHeading: string;
+	rsvpIntro: string;
+	rsvpAcceptLabel: string;
+	rsvpDeclineLabel: string;
+	rsvpCountQuestion: string;
+	rsvpSubmitLabel: string;
+	rsvpUpdateLabel: string;
+	thanksAttendingHeading: string;
+	thanksAttendingBody: string;
+	thanksDecliningHeading: string;
+	thanksDecliningBody: string;
+}
+
 /** Which sections appear in the guest site's navigation and are reachable at all. */
 export interface SectionToggles {
 	story: boolean;
@@ -210,6 +265,9 @@ export interface SectionToggles {
 
 export interface SiteContent {
 	hero: HeroContent;
+	theme: ThemeContent;
+	wording: WordingContent;
+	invitation: InvitationContent;
 	story: StoryContent;
 	details: DetailsContent;
 	party: PartyContent;

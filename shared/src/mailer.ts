@@ -70,6 +70,15 @@ export interface Message {
 	subject: string;
 	html: string;
 	text: string;
+	/**
+	 * Images embedded in the message body rather than linked.
+	 *
+	 * An invitation's QR code has to be *in* the email: most clients block remote
+	 * images by default, and a blocked QR code is an invitation with nothing on it.
+	 * Attaching it with a content id and referencing `cid:` displays without the
+	 * recipient having to trust anything.
+	 */
+	inlineImages?: { cid: string; filename: string; content: Buffer }[];
 }
 
 /** Sends one message and writes the log row. Never throws -- it reports. */
@@ -94,7 +103,15 @@ export async function sendToHousehold(
 			to: household.email,
 			subject: message.subject,
 			html: message.html,
-			text: message.text
+			text: message.text,
+			attachments: (message.inlineImages ?? []).map((image) => ({
+				filename: image.filename,
+				content: image.content,
+				cid: image.cid,
+				// 'inline' rather than 'attachment', so it renders in the body instead of
+				// appearing as a file to download.
+				contentDisposition: 'inline'
+			}))
 		});
 
 		recordEmail({

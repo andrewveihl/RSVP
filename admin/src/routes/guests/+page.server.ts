@@ -9,6 +9,7 @@ import {
 	getHousehold,
 	findHouseholdByName,
 	listBatches,
+	listSides,
 	listHouseholds,
 	logActivity,
 	markInvitationSent,
@@ -52,12 +53,14 @@ export const load: PageServerLoad = ({ url }) => {
 
 	const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
 	const batch = url.searchParams.get('batch') ?? '';
+	const side = url.searchParams.get('side') ?? '';
 
 	const filters = {
 		search,
 		status,
 		invitationSent,
 		batch: batch || undefined,
+		side: side || undefined,
 		sort,
 		direction: direction as 'asc' | 'desc'
 	};
@@ -71,7 +74,8 @@ export const load: PageServerLoad = ({ url }) => {
 		pageSize: PAGE_SIZE,
 		pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
 		batches: listBatches(),
-		filters: { search, status: statusParam, invitation: invitationParam, batch, sort, direction }
+		sides: listSides(),
+		filters: { search, status: statusParam, invitation: invitationParam, batch, side, sort, direction }
 	};
 };
 
@@ -84,6 +88,7 @@ function readHousehold(form: FormData) {
 		mailingAddress: optionalText(form.get('mailingAddress'), { multiline: true, max: 500 }),
 		partySize: clampInteger(form.get('partySize'), 1, 50, 1),
 		batch: optionalText(form.get('batch'), { max: 80 }),
+		side: optionalText(form.get('side'), { max: 80 }),
 		notes: optionalText(form.get('notes'), { multiline: true, max: 2000 })
 	};
 }

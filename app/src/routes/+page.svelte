@@ -7,10 +7,17 @@
 
 	const hero = $derived(data.site.content.hero);
 	const sections = $derived(data.site.content.sections);
+	const words = $derived(data.site.content.wording);
+	const heroStyle = $derived(data.site.content.theme.hero);
+
+	// 'plain' ignores the photo entirely; 'tint' pushes the scrim up so the type reads
+	// over a busy image at the cost of the photo itself.
+	const showPhoto = $derived(Boolean(hero.imageId) && heroStyle !== 'plain');
+	const scrim = $derived(heroStyle === 'tint' ? 'bg-canvas/88' : 'bg-canvas/72');
 </script>
 
 <section class="relative isolate flex min-h-[78vh] flex-col items-center justify-center overflow-hidden px-5 py-20 text-center">
-	{#if hero.imageId}
+	{#if showPhoto}
 		<img
 			src="/images/{hero.imageId}"
 			alt=""
@@ -19,7 +26,7 @@
 		/>
 		<!-- A scrim rather than a filter on the image: it keeps the type legible over a
 		     bright photo without washing the photo out. -->
-		<div class="absolute inset-0 -z-10 bg-canvas/72"></div>
+		<div class="absolute inset-0 -z-10 {scrim}"></div>
 	{/if}
 
 	<p class="eyebrow">{hero.subtitle}</p>
@@ -33,9 +40,9 @@
 	{/if}
 
 	<div class="mt-10 flex flex-wrap items-center justify-center gap-3">
-		<a href="/rsvp" class="btn-primary">RSVP</a>
+		<a href="/rsvp" class="btn-primary">{words.rsvpButton}</a>
 		{#if sections.details}
-			<a href="/details" class="btn-secondary">Event details</a>
+			<a href="/details" class="btn-secondary">{words.detailsButton}</a>
 		{/if}
 	</div>
 </section>

@@ -34,12 +34,7 @@ export function newId(): string {
 	return randomUUID();
 }
 
-/** The single source of truth for how a token becomes a guest-facing URL. */
-export function rsvpUrl(siteUrl: string, token: string): string {
-	return `${siteUrl.replace(/\/+$/, '')}/rsvp/${token}`;
-}
-
-/** Where the universal QR code points: the look-up-by-name fallback. */
-export function lookupUrl(siteUrl: string): string {
-	return `${siteUrl.replace(/\/+$/, '')}/rsvp`;
-}
+// Re-exported so server code has a single import for tokens and their URLs. They are
+// defined in their own module because this one imports `node:crypto`, which a browser
+// bundle cannot resolve -- and the admin's live preview has to build the link it draws.
+export { rsvpUrl, lookupUrl } from './rsvp-url';

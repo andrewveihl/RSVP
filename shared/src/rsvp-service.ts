@@ -5,6 +5,18 @@
  * The one place they differ is the deadline: it is a *soft* lock. A guest is turned
  * away after it passes; an admin recording a phone call is not. That difference is a
  * single flag rather than a second code path.
+ *
+ * ## One number in, two numbers out
+ *
+ * A guest answers exactly one question: how many of you are coming. Asking them to
+ * split that into "your household" and "additional guests" pushes our bookkeeping onto
+ * them -- somebody invited as a party of four has no way to know whether that is 4 and
+ * 0 or 3 and 1, and the two boxes were the most-failed part of the form.
+ *
+ * The split still exists in the database, because the couple genuinely need to know who
+ * brought extras. It is simply *derived* here: everything up to the invited party size
+ * is the household, and anything beyond it is a plus-one. That keeps every existing
+ * total, chart and export working unchanged.
  */
 import { isRsvpClosed } from './config';
 import { parseInteger } from './sanitize';
@@ -16,28 +28,44 @@ export const MAX_GUESTS = 50;
 
 export interface RsvpFormInput {
 	attending: unknown;
-	guestCount?: unknown;
-	plusOneCount?: unknown;
-	/** Hidden field that only a bot fills in. */
+	/** How many people are coming in total, including any extras. */
+	guestTotal?: unknown;
+	/** Hidden form field that only a bot fills in. */
 	honeypot?: unknown;
 }
 
 export interface ValidationSuccess {
 	ok: true;
 	attending: boolean;
-	guestCount: number;
-	plusOneCount: number;
+	guestTotal: number;
 }
 
 export interface ValidationFailure {
 	ok: false;
 	error: string;
-	field?: 'attending' | 'guestCount' | 'plusOneCount';
+	field?: 'attending' | 'guestTotal';
 	/** Set when the submission looked automated; the caller answers 200 and discards. */
 	silent?: boolean;
 }
 
 export type ValidationResult = ValidationSuccess | ValidationFailure;
+
+/**
+ * Splits a total into the household's own guests and their extras.
+ *
+ * Exported because the admin screens show both numbers, and the split has to be
+ * computed the same way wherever it is displayed.
+ */
+export function splitGuests(
+	total: number,
+	partySize: number
+): { guestCount: number; plusOneCount: number } {
+	const invited = Math.max(1, partySize);
+	return {
+		guestCount: Math.min(total, invited),
+		plusOneCount: Math.max(0, total - invited)
+	};
+}
 
 /**
  * Validates one submission.
@@ -52,36 +80,28 @@ export function validateRsvpForm(input: RsvpFormInput): ValidationResult {
 		return { ok: false, error: 'Thanks!', silent: true };
 	}
 
-	const raw = typeof input.attending === 'string' ? input.attending.trim().toLowerCase() : input.attending;
+	const raw =
+		typeof input.attending === 'string' ? input.attending.trim().toLowerCase() : input.attending;
 	let attending: boolean;
 	if (raw === 'yes' || raw === 'true' || raw === '1' || raw === true) attending = true;
 	else if (raw === 'no' || raw === 'false' || raw === '0' || raw === false) attending = false;
 	else return { ok: false, error: 'Please let us know whether you can make it.', field: 'attending' };
 
 	if (!attending) {
-		// A decline carries no counts, whatever the form happened to send.
-		return { ok: true, attending: false, guestCount: 0, plusOneCount: 0 };
+		// A decline carries no count, whatever the form happened to send.
+		return { ok: true, attending: false, guestTotal: 0 };
 	}
 
-	const guestCount = parseInteger(input.guestCount, { min: 1, max: MAX_GUESTS });
-	if (guestCount === null) {
+	const guestTotal = parseInteger(input.guestTotal, { min: 1, max: MAX_GUESTS });
+	if (guestTotal === null) {
 		return {
 			ok: false,
-			error: `Please enter how many people are coming (1 to ${MAX_GUESTS}).`,
-			field: 'guestCount'
+			error: `Please tell us how many of you are coming (1 to ${MAX_GUESTS}).`,
+			field: 'guestTotal'
 		};
 	}
 
-	const plusOneCount = parseInteger(input.plusOneCount ?? 0, { min: 0, max: MAX_GUESTS });
-	if (plusOneCount === null) {
-		return {
-			ok: false,
-			error: `Please enter a number of additional guests (0 to ${MAX_GUESTS}).`,
-			field: 'plusOneCount'
-		};
-	}
-
-	return { ok: true, attending: true, guestCount, plusOneCount };
+	return { ok: true, attending: true, guestTotal };
 }
 
 export interface SubmitContext {
@@ -118,17 +138,22 @@ export function submitRsvp(input: RsvpFormInput, context: SubmitContext): Submit
 		};
 	}
 
+	const { guestCount, plusOneCount } = validation.attending
+		? splitGuests(validation.guestTotal, context.household.partySize)
+		: { guestCount: 0, plusOneCount: 0 };
+
 	const result = saveRsvp({
 		householdId: context.household.id,
 		attending: validation.attending,
-		guestCount: validation.guestCount,
-		plusOneCount: validation.plusOneCount,
+		guestCount,
+		plusOneCount,
 		ipAddress: context.ipAddress ?? null,
 		userAgent: context.userAgent ?? null
 	});
 
-	const total = validation.guestCount + validation.plusOneCount;
-	const answer = validation.attending ? `attending (${total})` : 'not attending';
+	const answer = validation.attending
+		? `attending (${validation.guestTotal})`
+		: 'not attending';
 
 	logActivity({
 		eventType: result.created ? 'rsvp_submitted' : 'rsvp_updated',
@@ -136,8 +161,9 @@ export function submitRsvp(input: RsvpFormInput, context: SubmitContext): Submit
 		householdId: context.household.id,
 		metadata: {
 			attending: validation.attending,
-			guestCount: validation.guestCount,
-			plusOneCount: validation.plusOneCount,
+			guestTotal: validation.guestTotal,
+			guestCount,
+			plusOneCount,
 			viaAdmin: Boolean(context.asAdmin)
 		},
 		ipAddress: context.ipAddress ?? null

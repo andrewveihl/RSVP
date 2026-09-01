@@ -34,8 +34,10 @@ export default {
 				bad: 'rgb(var(--c-bad) / <alpha-value>)'
 			},
 			fontFamily: {
-				sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
-				display: ['Cormorant Garamond', 'Iowan Old Style', 'Georgia', 'Times New Roman', 'serif']
+				// Resolved through variables so the site's theme editor can swap the
+				// pairing without a rebuild. The fallbacks in app.css are the defaults.
+				sans: 'var(--font-body)',
+				display: 'var(--font-display)'
 			},
 			boxShadow: {
 				card: '0 1px 2px rgb(var(--c-shadow) / 0.05), 0 8px 24px rgb(var(--c-shadow) / 0.07)',

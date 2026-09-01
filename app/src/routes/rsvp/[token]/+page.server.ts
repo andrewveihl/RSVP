@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { getConfig, isRsvpClosed, rsvpDeadlineDate } from '$shared/config';
+import { getConfig, isRsvpClosed, rsvpDeadlineDate, weddingDateValue } from '$shared/config';
 import { CSRF_FIELD, issueCsrfToken, verifyCsrf } from '$shared/csrf';
 import { checkRateLimit } from '$shared/rate-limiter';
 import { logger } from '$shared/logger';
@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ params, cookies, parent }) => {
 
 	return {
 		found: household !== null,
+		token: params.token,
 		// Only what the page actually needs. The token is already in the URL; nothing
 		// else about the household is exposed.
 		household: household
@@ -39,8 +40,9 @@ export const load: PageServerLoad = async ({ params, cookies, parent }) => {
 					rsvp: household.rsvp
 						? {
 								attending: household.rsvp.attending,
-								guestCount: household.rsvp.guestCount,
-								plusOneCount: household.rsvp.plusOneCount,
+								// The guest answered one number, so the guest is shown one number
+								// back. The stored split is our bookkeeping, not theirs.
+								total: household.rsvp.guestCount + household.rsvp.plusOneCount,
 								updatedAt: household.rsvp.updatedAt
 							}
 						: null
@@ -49,6 +51,9 @@ export const load: PageServerLoad = async ({ params, cookies, parent }) => {
 		closed,
 		deadlineLabel: deadline ? formatLongDate(deadline) : '',
 		maxGuests: MAX_GUESTS,
+		// Absent when no wedding date is configured, which hides the button rather than
+		// offering a calendar file for an invalid date.
+		calendarUrl: weddingDateValue(site.weddingDate) ? '/rsvp/wedding.ics' : null,
 		csrfToken: issueCsrfToken(cookies, getConfig().siteUrl)
 	};
 };
@@ -66,8 +71,8 @@ export const actions: Actions = {
 			return fail(403, { error: 'Your session expired. Please reload the page and try again.' });
 		}
 
-		// The tight per-IP budget the brief asks for. It is applied to the submission
-		// only -- browsing the site has its own, far looser, allowance in hooks.
+		// The tight per-IP budget. It is applied to the submission only -- browsing the
+		// site has its own, far looser, allowance in hooks.
 		const budget = checkRateLimit(`rsvp:${locals.clientIp}`);
 		if (!budget.allowed) {
 			return fail(429, { error: 'Too many attempts. Please wait a minute and try again.' });
@@ -85,8 +90,7 @@ export const actions: Actions = {
 		const outcome = submitRsvp(
 			{
 				attending: form.get('attending'),
-				guestCount: form.get('guestCount'),
-				plusOneCount: form.get('plusOneCount'),
+				guestTotal: form.get('guestTotal'),
 				honeypot: form.get('website')
 			},
 			{

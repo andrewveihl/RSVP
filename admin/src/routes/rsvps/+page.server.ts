@@ -38,8 +38,7 @@ export const actions: Actions = {
 		const outcome = submitRsvp(
 			{
 				attending: result.form.get('attending'),
-				guestCount: result.form.get('guestCount'),
-				plusOneCount: result.form.get('plusOneCount')
+				guestTotal: result.form.get('guestTotal')
 			},
 			{
 				household,

@@ -16,6 +16,45 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			dateLine: 'May 29, 2027',
 			imageId: null
 		},
+		theme: {
+			// Sage. Chosen for the interface, not for charts -- see admin/src/app.css for
+			// why the dashboard uses a different palette entirely.
+			accent: '#8A9A7B',
+			fonts: 'serif-sans',
+			hero: 'photo',
+			order: ['story', 'details', 'party', 'gallery', 'registry', 'faq']
+		},
+		wording: {
+			rsvpButton: 'RSVP',
+			detailsButton: 'Event details',
+			footerNote: 'Questions?',
+			rsvpHeading: 'RSVP',
+			rsvpIntro: '',
+			rsvpAcceptLabel: 'Joyfully accepts',
+			rsvpDeclineLabel: 'Regretfully declines',
+			rsvpCountQuestion: 'How many of you are coming?',
+			rsvpSubmitLabel: 'Send our reply',
+			rsvpUpdateLabel: 'Update our reply',
+			thanksAttendingHeading: 'Thank you!',
+			thanksAttendingBody: "We can't wait to celebrate with you.",
+			thanksDecliningHeading: "We'll miss you!",
+			thanksDecliningBody: 'Thank you for letting us know.'
+		},
+		invitation: {
+			eyebrow: 'TOGETHER WITH THEIR FAMILIES',
+			names: coupleNames,
+			inviteLine: 'invite you to celebrate their marriage',
+			dateLine: 'Saturday, May 29, 2027',
+			timeLine: 'Four in the afternoon',
+			venueName: 'The Venue',
+			venueAddress: '123 Somewhere Road, Your Town',
+			qrCaption: 'SCAN TO RSVP',
+			showUrl: true,
+			showQr: true,
+			showBorder: true,
+			font: 'serif',
+			accent: '#8A9A7B'
+		},
 		story: {
 			heading: 'Our Story',
 			milestones: [
@@ -123,6 +162,18 @@ export function defaultEmailTemplates(): { name: string; subject: string; bodyHt
 				'<p>Hi {{household_name}},</p>',
 				'<p>We are getting our numbers together for {{wedding_date}} at {{venue}}, and we have not heard from you yet.</p>',
 				'<p>It only takes a moment: <a href="{{rsvp_link}}">RSVP here</a>.</p>',
+				'<p>Please let us know by {{deadline}}.</p>',
+				'<p>With love,<br>{{couple_names}}</p>'
+			].join('\n')
+		},
+		{
+			name: 'Invitation',
+			subject: "You're invited -- {{couple_names}}",
+			bodyHtml: [
+				'<p>Dear {{household_name}},</p>',
+				'<p>We are getting married on {{wedding_date}} at {{venue}}, and we would love you to be there.</p>',
+				'{{qr_code}}',
+				'<p style="text-align:center"><a href="{{rsvp_link}}">Scan the code, or tap here to RSVP</a></p>',
 				'<p>Please let us know by {{deadline}}.</p>',
 				'<p>With love,<br>{{couple_names}}</p>'
 			].join('\n')
