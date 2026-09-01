@@ -407,3 +407,40 @@ test('a form action cannot be posted without a CSRF token', async ({ request, pa
 	expect(response.status()).toBe(403);
 	expect(query('SELECT id FROM households WHERE name = ?', 'The CSRF-less Family')).toBeUndefined();
 });
+
+test('Gmail can be configured from the app, and the password never comes back', async ({ page }) => {
+	await page.goto('/settings');
+	await expect(page.getByText('Not configured yet')).toBeVisible();
+
+	await page.locator('#gmail_user').fill('couple@gmail.com');
+	await page.locator('#gmail_from_name').fill('Andrew & Madeline');
+	await page.getByRole('button', { name: 'Save settings' }).click();
+	await expect(page.getByRole('status')).toContainText('Settings saved.');
+
+	await page.locator('#appPassword').fill('abcd efgh ijkl mnop');
+	await page.getByRole('button', { name: 'Save app password' }).click();
+	await expect(page.getByRole('status')).toContainText('Gmail app password saved');
+
+	// Stored encrypted: the plaintext is nowhere in the database.
+	const stored = query<{ value: string }>(
+		"SELECT value FROM settings WHERE key = 'gmail_app_password'"
+	);
+	expect(stored!.value.startsWith('v1:')).toBe(true);
+	expect(stored!.value).not.toContain('abcd');
+
+	await page.reload();
+	// Configured now -- and the field is blank, because the value is never sent back.
+	await expect(page.getByText('Sending as')).toBeVisible();
+	await expect(page.locator('#appPassword')).toHaveValue('');
+	expect(await page.content()).not.toContain('abcd');
+
+	// And sending is unblocked without a restart.
+	await page.goto('/emails');
+	await expect(page.getByText('Gmail is not configured')).toHaveCount(0);
+
+	// Put it back, so later specs still see the unconfigured state.
+	await page.goto('/settings');
+	page.once('dialog', (dialog) => dialog.accept());
+	await page.getByRole('button', { name: 'Remove' }).click();
+	await expect(page.getByRole('status')).toContainText('removed');
+});

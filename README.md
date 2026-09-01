@@ -6,8 +6,8 @@ Two applications, one database:
 
 | | | |
 |---|---|---|
-| **Guest site** | `rsvp.<your-domain>` | The public wedding website, plus a private RSVP reachable by a unique link per household |
-| **Admin** | `admin-rsvp.<your-domain>` | Guest list, RSVPs, invitations, address labels, reminder emails, website content, analytics and backups |
+| **Guest site** | `andrew-madeline-rsvp.duckdns.org` | The public wedding website, plus a private RSVP reachable by a unique link per household |
+| **Admin** | `admin-andrew-madeline-rsvp.duckdns.org` | Guest list, RSVPs, invitations, address labels, reminder emails, website content, analytics and backups |
 
 They run as separate containers and share exactly one thing: a SQLite file on a Docker
 volume. Nothing else crosses between them, so a problem on the public site cannot reach
@@ -21,13 +21,14 @@ the admin panel.
 git clone <your-repo> weddingRSVP && cd weddingRSVP
 
 cp .env.example .env          # then edit it -- ADMIN_PASSWORD at minimum
-npm run set-domain rsvp-andrew-madeline.duckdns.org
+npm run set-domain andrew-madeline-rsvp.duckdns.org
 
-# Point both names at this server in DuckDNS:
-#   rsvp-andrew-madeline.duckdns.org
-#   admin-rsvp-andrew-madeline.duckdns.org
+# Both names must resolve to this server. On DuckDNS each domain is one label, so
+# these are TWO domains in the same account, not a domain and a subdomain:
+#   andrew-madeline-rsvp.duckdns.org
+#   admin-andrew-madeline-rsvp.duckdns.org
 
-./scripts/init-letsencrypt.sh rsvp-andrew-madeline.duckdns.org you@example.com
+./scripts/init-letsencrypt.sh andrew-madeline-rsvp.duckdns.org you@example.com
 docker compose up -d
 ```
 
@@ -38,9 +39,9 @@ words, the invitations, the reminders -- is editable from there.
 
 ```bash
 npm install
-npm run dev          # guest site on http://localhost:5173
-npm run dev:admin    # admin on http://localhost:5174
-npm run dev:all      # both at once
+npm run dev -w app -- --port 5175      # guest site
+npm run dev -w admin -- --port 5176    # admin
+npm run dev:all                        # both, on 5173/5174
 npm run seed         # fill a dev database with a plausible guest list
 
 npm test             # unit tests
@@ -52,9 +53,10 @@ npm run check        # type-check both apps
 default now). `better-sqlite3` and `esbuild` are already listed under `allowScripts` in
 `package.json`; if npm still prompts, run `npm approve-scripts better-sqlite3 esbuild`.
 
-> The dev ports are 5173 and 5174, which are also Vite's defaults. If you run the
-> pictureQR app at the same time, one of them will refuse to start -- stop the other
-> project, or pass `--port`.
+> The default dev ports are 5173 and 5174, which are also Vite's own defaults -- the
+> pictureQR project sits on them, so the commands above use 5175/5176. Whatever you
+> pick has to match `PUBLIC_SITE_URL` and `PUBLIC_ADMIN_URL` in `.env`, or the CSRF
+> origin check rejects every form.
 
 ---
 
@@ -115,6 +117,15 @@ credential; there is no guest login.
 
 - **`/rsvp/<token>`** -- that household's form, pre-filled with their previous answer if
   they have already replied. They can change it until the deadline.
+
+  It is built for a phone, because that is what everyone replies on. The page carries no
+  site navigation or footer and fits **one screen with no scrolling** on a Pixel 5, with
+  the submit button always in reach. Guests answer one question -- *how many of you are
+  coming?* -- with stepper buttons rather than a number field, so the keyboard never
+  opens over the button. The household-versus-plus-one split is derived against the
+  invited party size rather than asked for: nobody invited as a party of four can be
+  expected to know whether that is "4 and 0" or "3 and 1". The confirmation offers a
+  calendar file and a quiet way to change the reply.
 - **`/rsvp`** -- "find my invitation", for anyone who lost their link, and where the
   universal QR code points. It searches by name and never renders a token: an exact
   match becomes a redirect, and an ambiguous one shows names to pick from.
@@ -133,15 +144,15 @@ Sign in with `ADMIN_PASSWORD`. There is one account, because there are two of yo
 | Dashboard | Head counts, response rate, recent activity, per-batch and per-reminder breakdowns |
 | Guests | Search, filter, sort, edit, bulk actions; CSV import with column mapping |
 | RSVPs | Record or amend a reply on someone's behalf -- for phone calls and late responses |
-| Invitations | Print-ready PDFs with a QR code per household; batch PDF, per-guest ZIP, or QR PNGs |
+| Invitations | Live preview, every line and colour editable; print-ready PDFs, per-guest ZIP, or QR PNGs |
 | Labels | Avery 5160 / 5162 / 5163 / 5164 sheets from the stored addresses |
 | QR codes | Per household and one universal code, as PNG or SVG |
 | Emails | Template editor with merge fields and a live preview; send to everyone still pending |
-| Website | Every word and photo on the guest site |
+| Website | Every word and photo, plus accent colour, fonts, hero style and section order |
 | Analytics | Response rate over time, status breakdown, daily activity, reminder effectiveness |
 | Activity | A timestamped audit log of everything that has happened |
 | Backups | Daily automatic snapshots, manual backup, download and restore |
-| Settings | Names, dates, venue, deadline, card size, backup retention, Gmail test |
+| Settings | Names, dates, venue, deadline, card size, backup retention, and Gmail |
 
 ### CSV import
 
@@ -155,13 +166,39 @@ changed**, so an invitation already in the post keeps working.
 
 ### Reminder emails
 
-Gmail SMTP, using a Google *app password* (not your account password). Templates support
+Gmail is configured in the admin panel under **Settings → Email** — an address, a
+sender name, and a Google *app password* (not your account password). Nothing needs a
+restart, and the password is encrypted at rest with a key derived from
+`ADMIN_PASSWORD`, so a backup file on its own does not hand over the ability to send
+mail as you. It is never sent back to the browser, which is why the field looks empty
+even once one is saved. Rotating `ADMIN_PASSWORD` makes it unreadable by design; the
+screen says so and asks for it again.
+
+`GMAIL_USER` / `GMAIL_APP_PASSWORD` in `.env` still work as a fallback if you would
+rather keep the credential out of the database. Templates support
 `{{household_name}}`, `{{rsvp_link}}`, `{{wedding_date}}`, `{{venue}}`, `{{deadline}}`
 and `{{couple_names}}`. Sends are paced to stay inside Gmail's limits, and every attempt
 -- including the failures -- is recorded, so a bounce is visible rather than assumed
 delivered.
 
 Leaving Gmail unconfigured is fine; the screen says so and nothing else breaks.
+
+### Invitations
+
+The preview and the PDF are drawn from **one layout module**: the same list of draw
+operations, rendered by pdf-lib for print and as SVG for the screen. A preview built
+separately in HTML drifts from the print the moment either side changes, and the drift
+is only ever discovered after something has been printed.
+
+Every line is editable -- the eyebrow, the names, the invite line, the date, the time,
+the venue, the QR caption -- along with the lettering, an accent colour, and whether the
+border, the QR code and the printed fallback link appear at all. A **for a print shop**
+toggle adds 0.125in bleed and crop marks; leave it off for printing at home.
+
+The invitation inherits its venue, date and time from Settings and the Event Details
+page until a line is deliberately written on the card, so "the venue" has one home rather
+than three. An invitation says "Four in the afternoon" where a website says "4:00 pm",
+which is why the override exists.
 
 ### Photos
 
@@ -214,8 +251,8 @@ volume with the guest app and nothing else.
 ## Testing
 
 ```bash
-npm test           # 170 unit tests
-npm run test:e2e   # 85 end-to-end tests, against real production builds
+npm test           # 198 unit tests
+npm run test:e2e   # 90 end-to-end tests, against real production builds
 ```
 
 The E2E suites boot the same `adapter-node` server the containers run, against a
@@ -237,9 +274,14 @@ must set:
 
 ```ini
 ADMIN_PASSWORD=...
-PUBLIC_SITE_URL=https://rsvp-andrew-madeline.duckdns.org
-PUBLIC_ADMIN_URL=https://admin-rsvp-andrew-madeline.duckdns.org
+PUBLIC_SITE_URL=https://andrew-madeline-rsvp.duckdns.org
+PUBLIC_ADMIN_URL=https://admin-andrew-madeline-rsvp.duckdns.org
 ```
+
+Both hostnames must exist. On DuckDNS each domain is a single label, so the admin name
+is a **second domain registered in the same account**, not a subdomain of the first —
+one certificate covers the pair, so a missing name fails the whole request.
+`scripts/init-letsencrypt.sh` checks this before spending a rate-limit attempt.
 
 The wedding's own details -- names, dates, venue, deadline -- can be set in `.env` or
 edited in **Settings**, where they take effect immediately with no restart. A stored

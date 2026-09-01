@@ -79,6 +79,34 @@
 			</p>
 		</div>
 
+		<h2 class="pt-2 text-sm font-semibold text-ink">Email</h2>
+
+		<div class="grid gap-4 sm:grid-cols-2">
+			<div>
+				<label class="label" for="gmail_user">Gmail address</label>
+				<input
+					id="gmail_user"
+					name="gmail_user"
+					type="email"
+					class="field"
+					placeholder="you@gmail.com"
+					value={data.settings.gmail_user}
+				/>
+			</div>
+			<div>
+				<label class="label" for="gmail_from_name">Sender name</label>
+				<input
+					id="gmail_from_name"
+					name="gmail_from_name"
+					class="field"
+					value={data.settings.gmail_from_name}
+				/>
+				<p class="mt-1 text-xs text-muted">
+					What guests see the mail is from. The app password goes in the panel opposite.
+				</p>
+			</div>
+		</div>
+
 		<h2 class="pt-2 text-sm font-semibold text-ink">Printing and backups</h2>
 
 		<div class="grid gap-4 sm:grid-cols-3">
@@ -126,37 +154,99 @@
 	</form>
 
 	<div class="space-y-4">
-		<form method="POST" action="?/testEmail" class="card space-y-4 p-5">
-			<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
+		<section class="card space-y-4 p-5">
 			<h2 class="text-sm font-semibold text-ink">Gmail</h2>
 
-			{#if data.mailConfigured}
+			{#if data.passwordUnreadable}
+				<p class="rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
+					A password is stored but cannot be read. That happens when
+					<code>ADMIN_PASSWORD</code> changes: the password is encrypted with a key derived
+					from it, so the old value is no longer recoverable. Enter the app password again
+					below.
+				</p>
+			{:else if data.mailConfigured}
 				<p class="text-sm text-muted">
-					Sending as <span class="text-ink">{data.fromName} &lt;{data.smtpUser}&gt;</span>.
+					Sending as <span class="text-ink">{data.fromName} &lt;{data.smtpUser}&gt;</span>
+					via {data.smtpHost}:{data.smtpPort}.
+					{#if data.passwordFromEnv}
+						<span class="block text-xs">
+							The password is coming from <code>.env</code>. Setting one below moves it into
+							the app, where it can be changed without a restart.
+						</span>
+					{/if}
 				</p>
 			{:else}
 				<p class="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
-					Not configured. Set <code>GMAIL_USER</code> and <code>GMAIL_APP_PASSWORD</code> in
-					<code>.env</code> and restart the admin container. Use a Google app password, not
-					your account password.
+					Not configured yet. Fill in the address above, then the app password below.
+					Reminder emails and emailed invitations are unavailable until both are set;
+					everything else works regardless.
 				</p>
 			{/if}
 
-			<div>
-				<label class="label" for="to">Send a test to</label>
-				<input
-					id="to"
-					name="to"
-					type="email"
-					class="field"
-					placeholder={data.smtpUser || 'you@example.com'}
-				/>
-			</div>
+			<form method="POST" action="?/saveGmailPassword" class="space-y-3">
+				<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
 
-			<button type="submit" class="btn-secondary" disabled={!data.mailConfigured}>
-				Send test email
-			</button>
-		</form>
+				<div>
+					<label class="label" for="appPassword">
+						App password {data.passwordStored ? '(stored)' : ''}
+					</label>
+					<input
+						id="appPassword"
+						name="appPassword"
+						type="password"
+						class="field font-mono"
+						autocomplete="off"
+						placeholder={data.passwordStored ? 'Stored — type to replace' : 'abcd efgh ijkl mnop'}
+					/>
+					<p class="mt-1 text-xs text-muted">
+						A Google <strong>app password</strong>, not your account password: create one at
+						<code>myaccount.google.com/apppasswords</code> with 2-step verification on.
+						Spaces are fine — Google shows it in four groups.
+					</p>
+					<p class="mt-1 text-xs text-muted">
+						Stored encrypted, with a key derived from <code>ADMIN_PASSWORD</code>, so a
+						downloaded backup on its own does not reveal it. It is never sent back to this
+						page — which is why the field is blank even when one is saved.
+					</p>
+				</div>
+
+				<div class="flex flex-wrap gap-2">
+					<button type="submit" class="btn-primary">Save app password</button>
+					{#if data.passwordStored}
+						<button
+							type="submit"
+							class="btn-danger"
+							onclick={(event) => {
+								const field = document.getElementById('appPassword') as HTMLInputElement | null;
+								if (!confirm('Remove the stored Gmail app password?')) event.preventDefault();
+								else if (field) field.value = '';
+							}}
+						>
+							Remove
+						</button>
+					{/if}
+				</div>
+			</form>
+
+			<form method="POST" action="?/testEmail" class="space-y-3 border-t border-line pt-4">
+				<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
+
+				<div>
+					<label class="label" for="to">Send a test to</label>
+					<input
+						id="to"
+						name="to"
+						type="email"
+						class="field"
+						placeholder={data.smtpUser || 'you@example.com'}
+					/>
+				</div>
+
+				<button type="submit" class="btn-secondary" disabled={!data.mailConfigured}>
+					Send test email
+				</button>
+			</form>
+		</section>
 
 		<section class="card p-5 text-sm">
 			<h2 class="text-sm font-semibold text-ink">Deployment</h2>

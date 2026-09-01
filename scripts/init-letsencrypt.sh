@@ -45,6 +45,48 @@ if ! docker compose version >/dev/null 2>&1; then
 	exit 1
 fi
 
+# --- Check DNS before spending a rate-limit attempt -------------------------
+#
+# One certificate covers both names, so a single unresolved name fails the whole
+# request -- and certbot reports it as a challenge failure, which reads like a
+# firewall problem and is not one. Let's Encrypt also rate-limits failures, so it is
+# worth being certain before asking.
+#
+# On DuckDNS the admin name is a SEPARATE domain, not a subdomain: each DuckDNS
+# domain is one label. Register both in the same account and point them at this host.
+resolves() {
+	if command -v getent >/dev/null 2>&1; then
+		getent hosts "$1" >/dev/null 2>&1 && return 0
+	fi
+	if command -v host >/dev/null 2>&1; then
+		host "$1" >/dev/null 2>&1 && return 0
+	fi
+	if command -v nslookup >/dev/null 2>&1; then
+		nslookup "$1" >/dev/null 2>&1 && return 0
+	fi
+	# No resolver tool available -- do not block the run on a check we cannot make.
+	return 0
+}
+
+MISSING=""
+for name in "$DOMAIN" "$ADMIN_DOMAIN"; do
+	resolves "$name" || MISSING="$MISSING $name"
+done
+
+if [ -n "$MISSING" ]; then
+	echo "" >&2
+	echo "These names do not resolve yet:$MISSING" >&2
+	echo "" >&2
+	echo "Both must point at this server before a certificate can be issued -- one" >&2
+	echo "certificate covers the pair, so a single missing name fails the whole request." >&2
+	echo "" >&2
+	echo "On DuckDNS each domain is a single label, so '$ADMIN_DOMAIN'" >&2
+	echo "is a second domain to register in the same account, not a subdomain of the first." >&2
+	echo "" >&2
+	echo "Re-run this once both resolve. Set SKIP_DNS_CHECK=1 to proceed anyway." >&2
+	[ "${SKIP_DNS_CHECK:-0}" = "1" ] || exit 1
+fi
+
 CERT_PATH="./certbot/conf/live/$DOMAIN"
 
 if [ -d "$CERT_PATH" ]; then

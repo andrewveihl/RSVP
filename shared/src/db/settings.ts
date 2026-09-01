@@ -8,6 +8,7 @@
  * uses rather than reading `getConfig()` directly for these particular values.
  */
 import { getConfig } from '../config';
+import { canStoreSecrets, decryptSecret, encryptSecret } from '../secrets';
 import { getDb } from './connection';
 
 export const SETTING_KEYS = [
@@ -20,7 +21,13 @@ export const SETTING_KEYS = [
 	'invitation_width_in',
 	'invitation_height_in',
 	'backup_retention_days',
-	'accent_color'
+	'accent_color',
+	// Gmail, so the couple can set it from the Settings screen instead of editing
+	// .env and restarting a container. The app password is stored encrypted -- see
+	// `smtpConfig` below and `shared/src/secrets.ts`.
+	'gmail_user',
+	'gmail_from_name',
+	'gmail_app_password'
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -73,6 +80,13 @@ function environmentDefault(key: SettingKey): string {
 			return String(config.backupRetentionDays);
 		case 'accent_color':
 			return '#8A9A7B';
+		case 'gmail_user':
+			return config.smtp.user;
+		case 'gmail_from_name':
+			return config.smtp.fromName;
+		case 'gmail_app_password':
+			// Never surfaced through `getSetting`; see `smtpConfig`.
+			return '';
 		default:
 			return '';
 	}
@@ -84,10 +98,76 @@ export function getSetting(key: SettingKey): string {
 	return environmentDefault(key);
 }
 
-/** The full effective settings map: stored values over environment defaults. */
+/**
+ * The full effective settings map: stored values over environment defaults.
+ *
+ * The app password is deliberately excluded. This map is handed to page loads and
+ * therefore reaches the browser, and a credential has no business being there --
+ * `smtpConfig` is the only way to read it, and it is used server-side only.
+ */
 export function effectiveSettings(): Record<SettingKey, string> {
-	return Object.fromEntries(SETTING_KEYS.map((key) => [key, getSetting(key)])) as Record<
-		SettingKey,
-		string
-	>;
+	return Object.fromEntries(
+		SETTING_KEYS.map((key) => [key, key === 'gmail_app_password' ? '' : getSetting(key)])
+	) as Record<SettingKey, string>;
+}
+
+export interface SmtpConfig {
+	user: string;
+	appPassword: string;
+	fromName: string;
+	host: string;
+	port: number;
+	/** True when a password is stored but this ADMIN_PASSWORD cannot decrypt it. */
+	passwordUnreadable: boolean;
+}
+
+/**
+ * The SMTP settings actually used to send, resolved settings-over-environment.
+ *
+ * This lives here rather than in `config.ts` because it reads the database, and
+ * `config.ts` is imported *by* the database layer -- putting it there would be a cycle.
+ */
+export function smtpConfig(): SmtpConfig {
+	const config = getConfig();
+
+	const stored = getRawSetting('gmail_app_password');
+	const decrypted = decryptSecret(stored);
+
+	// An environment password still works, and is the fallback when nothing is stored.
+	const appPassword = decrypted.ok ? decrypted.value : config.smtp.appPassword;
+
+	return {
+		user: getSetting('gmail_user'),
+		fromName: getSetting('gmail_from_name'),
+		appPassword,
+		host: config.smtp.host,
+		port: config.smtp.port,
+		passwordUnreadable: Boolean(stored) && !decrypted.ok && !config.smtp.appPassword
+	};
+}
+
+/** Stores the app password encrypted, or clears it when given an empty string. */
+export function setGmailPassword(plaintext: string): { ok: boolean; error?: string } {
+	if (!plaintext) {
+		deleteSetting('gmail_app_password');
+		return { ok: true };
+	}
+
+	if (!canStoreSecrets()) {
+		return {
+			ok: false,
+			error: 'ADMIN_PASSWORD is not set on the server, so there is no key to encrypt with.'
+		};
+	}
+
+	const encrypted = encryptSecret(plaintext);
+	if (!encrypted) return { ok: false, error: 'Could not encrypt the password.' };
+
+	setSetting('gmail_app_password', encrypted);
+	return { ok: true };
+}
+
+/** Whether a password is stored at all, without revealing or decrypting it. */
+export function hasGmailPassword(): boolean {
+	return Boolean(getRawSetting('gmail_app_password'));
 }

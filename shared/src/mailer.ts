@@ -12,18 +12,23 @@
  */
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
-import { getConfig } from './config';
 import { logError, logger } from './logger';
-import { recordEmail } from './db';
+import { recordEmail, smtpConfig } from './db';
 import type { Household } from './types';
 
 let transporter: Transporter | null = null;
 let transporterFor = '';
 
 function getTransporter(): Transporter {
-	const { smtp } = getConfig();
-	const key = `${smtp.host}:${smtp.port}:${smtp.user}`;
+	const smtp = smtpConfig();
+	// The password is part of the cache key, so changing it in Settings replaces the
+	// pooled connection rather than quietly reusing one authenticated with the old one.
+	const key = `${smtp.host}:${smtp.port}:${smtp.user}:${smtp.appPassword}`;
 	if (transporter && transporterFor === key) return transporter;
+
+	// A pooled connection outlives the settings that made it, so the old one is closed
+	// rather than left holding a socket to Gmail.
+	transporter?.close();
 
 	transporter = nodemailer.createTransport({
 		host: smtp.host,
@@ -47,12 +52,12 @@ export function resetTransporter(): void {
 }
 
 export function isMailConfigured(): boolean {
-	const { smtp } = getConfig();
+	const smtp = smtpConfig();
 	return Boolean(smtp.user && smtp.appPassword);
 }
 
 function fromAddress(): string {
-	const { smtp } = getConfig();
+	const smtp = smtpConfig();
 	// The display name is quoted so a name containing a comma cannot split the header
 	// into two addresses.
 	return `"${smtp.fromName.replace(/"/g, '')}" <${smtp.user}>`;
