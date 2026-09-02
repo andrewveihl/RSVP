@@ -233,7 +233,9 @@ docker cp wedding-rsvp-admin:/backups ./backups-copy     # take them elsewhere
 |---|---|
 | Guest authentication | A 192-bit random token per household, and nothing else |
 | Admin authentication | One password, HMAC-signed session cookie, 30-minute idle timeout |
-| Login rate limit | 5 attempts per 15 minutes per IP |
+| Login rate limit | 5 attempts per 15 minutes per IP, plus a ceiling of 60 across all addresses at once, so an attacker with a pool of them is bounded too |
+| Client identity | Rate limits key off the last `X-Forwarded-For` entry -- the one nginx appended -- because everything to its left is whatever the client sent. `TRUSTED_PROXY_HOPS` says how many hops to believe |
+| Weak passwords | The published `.env.example` placeholder is refused outright, and anything under 12 characters is flagged in the log at start-up |
 | RSVP rate limit | 20 submissions per minute per IP; name look-up is tighter still |
 | CSRF | Signed double-submit token in a hidden field, plus Origin and Referer checks, on every state-changing request in both apps |
 | Bots | A honeypot field; tripping it answers as though it worked and stores nothing |

@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { resolveClientIp } from '$shared/rate-limiter';
-import { readSession } from '$shared/session';
+import { adminPasswordStatus, readSession } from '$shared/session';
 import { logError, logger } from '$shared/logger';
 import { bootstrapDatabase } from '$shared/db';
 import { startBackupSchedule } from '$lib/server/schedule';
@@ -38,10 +38,40 @@ const SECURITY_HEADERS: Record<string, string> = {
 	].join('; ')
 };
 
+/**
+ * Says so in the log when the one credential guarding the guest list is not fit for
+ * the job. Logged rather than thrown: the panel refuses the unusable cases at the
+ * login screen anyway, and a container that will not boot the week of the wedding is
+ * its own kind of outage.
+ */
+function auditAdminPassword(): void {
+	switch (adminPasswordStatus()) {
+		case 'unset':
+			logger.error(
+				{ event: 'admin.password_unset' },
+				'ADMIN_PASSWORD is not set -- nobody can sign in to the admin panel'
+			);
+			break;
+		case 'placeholder':
+			logger.error(
+				{ event: 'admin.password_placeholder' },
+				'ADMIN_PASSWORD is still the published .env.example value -- logins are refused until it is changed'
+			);
+			break;
+		case 'weak':
+			logger.warn(
+				{ event: 'admin.password_weak' },
+				'ADMIN_PASSWORD is under 12 characters; it is the only thing guarding the guest list'
+			);
+			break;
+	}
+}
+
 let started = false;
 function ensureStarted(): void {
 	if (started) return;
 	started = true;
+	auditAdminPassword();
 	try {
 		bootstrapDatabase();
 		startBackupSchedule();

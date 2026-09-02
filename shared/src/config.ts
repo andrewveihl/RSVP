@@ -21,6 +21,22 @@ const DEFAULTS = {
 	PAGE_RATE_LIMIT_MAX: 240,
 	ADMIN_LOGIN_MAX: 5,
 	ADMIN_LOGIN_WINDOW_MS: 15 * 60 * 1000,
+	/**
+	 * A ceiling on failed logins from *everyone at once*, so that an attacker with a
+	 * pool of addresses cannot simply pay the per-IP budget over and over. Set well
+	 * above anything two people mistyping a password could reach.
+	 */
+	ADMIN_LOGIN_GLOBAL_MAX: 60,
+	/**
+	 * How many reverse proxies sit in front of the app.
+	 *
+	 * X-Forwarded-For is appended to by each hop, so only the last `n` entries were
+	 * written by infrastructure we control; everything to their left is whatever the
+	 * client sent, and a client will happily invent entries to dodge a rate limit.
+	 * Our deployment is one nginx, hence 1. Set 0 when the app is exposed directly,
+	 * which makes the header be ignored entirely.
+	 */
+	TRUSTED_PROXY_HOPS: 1,
 	/** Inactivity timeout for the admin session, per the brief's default. */
 	ADMIN_SESSION_TTL_MS: 30 * 60 * 1000,
 	DATABASE_PATH: '/data/wedding-rsvp.db',
@@ -40,6 +56,12 @@ function int(name: string, fallback: number): number {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** As `int`, but 0 is a meaningful setting rather than a typo to be ignored. */
+function intFromZero(name: string, fallback: number): number {
+	const parsed = Number.parseInt(process.env[name] ?? '', 10);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export interface SmtpConfig {
 	user: string;
 	appPassword: string;
@@ -55,6 +77,10 @@ export interface AppConfig {
 	pageRateLimit: { max: number; windowMs: number };
 	/** Much tighter budget for password guessing than for anything guest-facing. */
 	adminLoginRateLimit: { max: number; windowMs: number };
+	/** The same budget counted across every address at once, as a backstop. */
+	adminLoginGlobalLimit: { max: number; windowMs: number };
+	/** Reverse proxies in front of the app; decides how much of XFF can be believed. */
+	trustedProxyHops: number;
 	adminSessionTtlMs: number;
 	/** ISO timestamp; a *soft* lock -- the admin can still record a late RSVP. */
 	rsvpDeadline: string;
@@ -90,6 +116,11 @@ export function getConfig(): AppConfig {
 			max: int('ADMIN_LOGIN_RATE_LIMIT_MAX', DEFAULTS.ADMIN_LOGIN_MAX),
 			windowMs: int('ADMIN_LOGIN_RATE_LIMIT_WINDOW_MS', DEFAULTS.ADMIN_LOGIN_WINDOW_MS)
 		},
+		adminLoginGlobalLimit: {
+			max: int('ADMIN_LOGIN_GLOBAL_MAX', DEFAULTS.ADMIN_LOGIN_GLOBAL_MAX),
+			windowMs: int('ADMIN_LOGIN_RATE_LIMIT_WINDOW_MS', DEFAULTS.ADMIN_LOGIN_WINDOW_MS)
+		},
+		trustedProxyHops: intFromZero('TRUSTED_PROXY_HOPS', DEFAULTS.TRUSTED_PROXY_HOPS),
 		adminSessionTtlMs: int('ADMIN_SESSION_TTL_MS', DEFAULTS.ADMIN_SESSION_TTL_MS),
 		rsvpDeadline: str('RSVP_DEADLINE'),
 		weddingDate: str('WEDDING_DATE', DEFAULTS.WEDDING_DATE),

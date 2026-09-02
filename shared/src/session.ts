@@ -47,7 +47,37 @@ function constantTimeEquals(a: string, b: string): boolean {
 }
 
 /**
- * Constant-time password check; returns false when no password is configured.
+ * The value shipped in `.env.example`.
+ *
+ * It is published in a public repository, so a deployment still using it has no
+ * password at all -- anyone who can read GitHub knows it. Treated as unset below,
+ * which is the difference between "misconfigured" and "wide open".
+ */
+export const PLACEHOLDER_ADMIN_PASSWORD = 'change-me-to-something-long';
+
+/** Short enough that the login rate limits are the only thing standing in the way. */
+const MIN_REASONABLE_LENGTH = 12;
+
+export type AdminPasswordStatus = 'unset' | 'placeholder' | 'weak' | 'ok';
+
+/**
+ * Whether the configured password is fit to be the only thing guarding the guest list.
+ *
+ * `unset` and `placeholder` refuse logins outright -- better a locked-out couple who
+ * can read the error than a panel the whole internet can open. `weak` still works;
+ * it is only logged, because deciding a password is too short is not worth taking a
+ * working site down for the week of a wedding.
+ */
+export function adminPasswordStatus(): AdminPasswordStatus {
+	const password = getConfig().adminPassword;
+	if (!password) return 'unset';
+	if (password === PLACEHOLDER_ADMIN_PASSWORD) return 'placeholder';
+	if (password.length < MIN_REASONABLE_LENGTH) return 'weak';
+	return 'ok';
+}
+
+/**
+ * Constant-time password check; returns false when no usable password is configured.
  *
  * Both sides are HMAC'd first so the comparison operates on two equal-length digests:
  * that keeps the check constant time without leaking the real password's length.
@@ -55,6 +85,7 @@ function constantTimeEquals(a: string, b: string): boolean {
 export function verifyAdminPassword(candidate: string): boolean {
 	const expected = getConfig().adminPassword;
 	if (!expected) return false;
+	if (expected === PLACEHOLDER_ADMIN_PASSWORD) return false;
 	const hashed = (value: string) => createHmac('sha256', KEY_SALT).update(value).digest('hex');
 	return constantTimeEquals(hashed(candidate), hashed(expected));
 }

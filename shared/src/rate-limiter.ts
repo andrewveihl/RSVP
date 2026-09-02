@@ -80,17 +80,42 @@ export function rateLimiterSize(): number {
 }
 
 /**
- * Resolves the real client IP. nginx sets X-Forwarded-For; we take the left-most
- * entry, which is the original client, and fall back to Kit's socket address.
+ * Resolves the client IP that rate limits are counted against.
+ *
+ * X-Forwarded-For is a chain each proxy appends to, so the right-most entry is the
+ * peer *our* nginx actually saw and everything left of it is unverifiable -- it is
+ * whatever the client sent, and nginx appended to rather than replaced.
+ *
+ * Reading the left-most entry, as this used to, therefore let anyone pick their own
+ * rate-limit bucket: a fresh `X-Forwarded-For: 203.0.113.<n>` on each request bought
+ * a fresh budget, which made the admin login's five-attempts-per-quarter-hour cap
+ * unlimited. So we count `trustedProxyHops` entries in from the right and refuse to
+ * look any further left. With one nginx that is the last entry; with none (the app
+ * exposed directly, or the E2E suite) the header is ignored entirely.
  */
 export function resolveClientIp(request: Request, fallback: () => string): string {
-	const forwarded = request.headers.get('x-forwarded-for');
-	if (forwarded) {
-		const first = forwarded.split(',')[0]?.trim();
-		if (first) return first;
+	const hops = getConfig().trustedProxyHops;
+
+	if (hops > 0) {
+		const forwarded = request.headers.get('x-forwarded-for');
+		if (forwarded) {
+			const chain = forwarded
+				.split(',')
+				.map((entry) => entry.trim())
+				.filter(Boolean);
+
+			// Never index past the start: a short chain means fewer proxies than
+			// configured, so the oldest entry we have is the furthest we can trust.
+			const trusted = chain[Math.max(0, chain.length - hops)];
+			if (trusted) return trusted;
+		}
+
+		// nginx *replaces* X-Real-IP with the connecting address rather than appending,
+		// so it cannot be forged from outside -- but it only exists behind that proxy.
+		const realIp = request.headers.get('x-real-ip');
+		if (realIp) return realIp.trim();
 	}
-	const realIp = request.headers.get('x-real-ip');
-	if (realIp) return realIp.trim();
+
 	try {
 		return fallback();
 	} catch {

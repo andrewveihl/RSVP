@@ -5,6 +5,7 @@ import { logger } from '$shared/logger';
 import { checkRateLimit } from '$shared/rate-limiter';
 import { CSRF_FIELD, verifyCsrf } from '$shared/csrf';
 import {
+	adminPasswordStatus,
 	clearSessionCookie,
 	createSessionToken,
 	setSessionCookie,
@@ -64,8 +65,39 @@ export const actions: Actions = {
 			});
 		}
 
-		if (!getConfig().adminPassword) {
+		// And the same budget counted across every address at once. The per-IP cap alone
+		// only costs an attacker addresses, and addresses are cheap -- a single IPv6
+		// allocation is billions of them. This bounds the whole attack rather than each
+		// participant in it.
+		//
+		// It is deliberately set far above what two people mistyping a password could
+		// reach, because it can be held down by an attacker: while one is running, the
+		// couple may have to wait out the window (or `docker compose restart admin`,
+		// which clears the counters, since they are in memory). That is the better half
+		// of the trade -- the alternative is unlimited guessing.
+		const global = checkRateLimit('admin-login:global', getConfig().adminLoginGlobalLimit);
+		if (!global.allowed) {
+			logger.warn(
+				{ event: 'admin.login_rate_limited_global', clientIp: locals.clientIp },
+				'admin login refused: global attempt ceiling reached'
+			);
+			return fail(429, {
+				error: `Too many attempts. Try again in about ${Math.ceil(global.retryAfter / 60)} minute(s).`
+			});
+		}
+
+		const passwordStatus = adminPasswordStatus();
+		if (passwordStatus === 'unset') {
 			return fail(500, { error: 'ADMIN_PASSWORD is not set on the server.' });
+		}
+		if (passwordStatus === 'placeholder') {
+			// Said plainly, because the only person who can see this is standing at a
+			// panel that would otherwise be open to anyone who has read .env.example.
+			return fail(500, {
+				error:
+					'ADMIN_PASSWORD is still the example value from .env.example, which is public. ' +
+					'Set a real one in .env and restart the admin container.'
+			});
 		}
 
 		if (typeof password !== 'string' || !verifyAdminPassword(password)) {
