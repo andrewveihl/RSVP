@@ -1,5 +1,5 @@
 services:
-  # --- Guest wedding site: rsvp.<domain> -----------------------------------
+  # --- Guest wedding site: rsvp.<domain> ------------------------------------
   app:
     build:
       # Repo root, because both apps compile in the shared/ package.
@@ -9,8 +9,6 @@ services:
     container_name: wedding-rsvp-app
     restart: unless-stopped
     init: true
-    env_file:
-      - .env
     environment:
       PORT: 3000
       HOST: 0.0.0.0
@@ -22,6 +20,11 @@ services:
       # Dates are rendered in local time -- set this to the wedding's zone so every
       # guest sees the same day, wherever they are reading from.
       TZ: ${TZ:-UTC}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      COUPLE_NAMES: ${COUPLE_NAMES}
+      WEDDING_DATE: ${WEDDING_DATE}
+      RSVP_DEADLINE: ${RSVP_DEADLINE}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS}
     volumes:
       # THE database. Shared with the admin container; that is the only thing the two
       # have in common, which is what keeps them isolated from each other.
@@ -30,13 +33,14 @@ services:
       - "3000"
     networks:
       - wedding
+      - proxy
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "5"
 
-  # --- Admin dashboard: admin.rsvp.<domain> --------------------------------
+  # --- Admin dashboard: rsvp-admin.<domain> ---------------------------------
   admin:
     build:
       context: .
@@ -45,89 +49,80 @@ services:
     container_name: wedding-rsvp-admin
     restart: unless-stopped
     init: true
-    env_file:
-      - .env
     environment:
-      PORT: 3000
+      PORT: 3001
       HOST: 0.0.0.0
       NODE_ENV: production
       DATABASE_PATH: /data/wedding-rsvp.db
-      BACKUP_DIR: /backups
-      # This app's own public URL, which is what its session cookie is scoped to.
       ORIGIN: ${PUBLIC_ADMIN_URL}
       TZ: ${TZ:-UTC}
-      # Photos and PDFs are posted through this app, so its body limit has to clear
-      # the 8MB image cap with room for the rest of the multipart form.
-      BODY_SIZE_LIMIT: 16777216
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      COUPLE_NAMES: ${COUPLE_NAMES}
+      WEDDING_DATE: ${WEDDING_DATE}
+      RSVP_DEADLINE: ${RSVP_DEADLINE}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS}
     volumes:
       - db-data:/data
-      # This container is the only one that writes backups -- two schedulers against
-      # one directory would just make twice as many snapshots.
-      - backups:/backups
     expose:
-      - "3000"
+      - "3001"
     networks:
       - wedding
+      - proxy
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "5"
 
-  # --- Reverse proxy and TLS termination for both --------------------------
+  # --- Reverse proxy --------------------------------------------------------
   nginx:
     image: nginx:alpine
     container_name: wedding-rsvp-nginx
     restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-webroot:/var/www/certbot:ro
+    expose:
+      - "80"
+    networks:
+      - wedding
+      - proxy
     depends_on:
       - app
       - admin
-    ports:
-      - "80:80"
-      - "443:443"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # --- TLS certificate renewal (Let's Encrypt) ------------------------------
+  certbot:
+    image: certbot/certbot
+    container_name: wedding-rsvp-certbot
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
+      - certbot-webroot:/var/www/certbot
+      - certbot-conf:/etc/letsencrypt
+    entrypoint: >-
+      sh -c 'trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done'
     networks:
       - wedding
-    # Pick up renewed certificates without a restart: reload every 12 hours.
-    command: >
-      /bin/sh -c "while :; do sleep 12h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
 
-  certbot:
-    image: certbot/certbot:latest
-    container_name: wedding-rsvp-certbot
-    restart: unless-stopped
-    volumes:
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-    # Wake up twice a day and renew anything inside its 30-day window. Certbot exits
-    # immediately when there is nothing to do, so this is cheap. One certificate covers
-    # both hostnames, so one renewal keeps both apps online.
-    entrypoint: >
-      /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-
+# ---------------------------------------------------------------------------
 volumes:
-  # The whole wedding: guests, RSVPs, site content and photos are all in this one
-  # SQLite file. The admin container snapshots it daily into `backups`, but both
-  # volumes live on the same disk -- copy them off the machine periodically too.
   db-data:
     name: wedding-rsvp-data
-  backups:
-    name: wedding-rsvp-backups
+  certbot-webroot:
+    name: wedding-rsvp-certbot-webroot
+  certbot-conf:
+    name: wedding-rsvp-certbot-conf
 
 networks:
   wedding:
     name: wedding-rsvp
+  proxy:
+    external: true
