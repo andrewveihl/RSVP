@@ -74,52 +74,10 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  # --- Reverse proxy --------------------------------------------------------
-  nginx:
-    image: nginx:alpine
-    container_name: wedding-rsvp-nginx
-    restart: unless-stopped
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - certbot-webroot:/var/www/certbot:ro
-    expose:
-      - "80"
-    networks:
-      - wedding
-      - proxy
-    depends_on:
-      - app
-      - admin
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "3"
-
-  # --- TLS certificate renewal (Let's Encrypt) ------------------------------
-  certbot:
-    image: certbot/certbot
-    container_name: wedding-rsvp-certbot
-    volumes:
-      - certbot-webroot:/var/www/certbot
-      - certbot-conf:/etc/letsencrypt
-    entrypoint: >-
-      sh -c 'trap exit TERM;
-      while :; do
-        certbot renew --webroot -w /var/www/certbot --quiet;
-        sleep 12h & wait $${!};
-      done'
-    networks:
-      - wedding
-
 # ---------------------------------------------------------------------------
 volumes:
   db-data:
     name: wedding-rsvp-data
-  certbot-webroot:
-    name: wedding-rsvp-certbot-webroot
-  certbot-conf:
-    name: wedding-rsvp-certbot-conf
 
 networks:
   wedding:
