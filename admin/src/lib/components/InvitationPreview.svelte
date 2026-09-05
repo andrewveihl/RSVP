@@ -19,7 +19,8 @@
 		variant,
 		bleedIn = 0,
 		showCropMarks = false,
-		householdId
+		householdId,
+		photoId = null
 	}: {
 		text: InvitationText;
 		widthIn: number;
@@ -28,12 +29,25 @@
 		bleedIn?: number;
 		showCropMarks?: boolean;
 		householdId: string | null;
+		/** Served from this origin behind the session -- no data URL needed. */
+		photoId?: string | null;
 	} = $props();
 
 	let qrDataUrl = $state<string | null>(null);
 
+	/**
+	 * Pulled out of `text` as a plain boolean, and that is the whole point.
+	 *
+	 * `text` is rebuilt by the editor on every keystroke, so it is a new object every
+	 * time -- and an effect that read `text.showQr` directly would depend on the object
+	 * rather than the flag, and refetch the QR on every letter typed into the venue
+	 * field. A derived boolean only notifies when the boolean actually changes, which
+	 * is what makes the fetch below keyed on the household, as its comment claims.
+	 */
+	const wantsQr = $derived(text.showQr);
+
 	$effect(() => {
-		if (!householdId || !text.showQr) {
+		if (!householdId || !wantsQr) {
 			qrDataUrl = null;
 			return;
 		}
@@ -57,7 +71,15 @@
 	});
 
 	const svg = $derived(
-		invitationSvg(text, { widthIn, heightIn, variant, bleedIn, showCropMarks, qrDataUrl })
+		invitationSvg(text, {
+			widthIn,
+			heightIn,
+			variant,
+			bleedIn,
+			showCropMarks,
+			qrDataUrl,
+			photoUrl: photoId ? `/images/${encodeURIComponent(photoId)}` : null
+		})
 	);
 </script>
 

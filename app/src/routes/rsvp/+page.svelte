@@ -66,7 +66,8 @@
 <form
 	method="POST"
 	bind:this={formEl}
-	class="flex flex-1 flex-col"
+	class="flex flex-1 flex-col sm:my-10 sm:w-full sm:max-w-md sm:flex-none sm:self-center
+		sm:rounded-2xl sm:border sm:border-line sm:bg-surface sm:shadow-card"
 	use:enhance={() => {
 		submitting = true;
 		return async ({ update }) => {
@@ -77,7 +78,7 @@
 >
 	<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
 
-	<div class="flex-1 px-5 pb-4 pt-10">
+	<div class="flex-1 px-5 pb-4 pt-10 sm:flex-none sm:px-8">
 		<header class="text-center">
 			<h1 class="font-display text-2xl text-ink">Find your invitation</h1>
 			<p class="mt-2 text-sm text-muted">Type the name on your invitation.</p>
@@ -152,7 +153,10 @@
 		{/if}
 	</div>
 
-	<div class="sticky bottom-0 border-t border-line/70 bg-canvas/95 px-5 py-3 backdrop-blur">
+	<div
+		class="sticky bottom-0 border-t border-line/70 bg-canvas/95 px-5 py-3 backdrop-blur
+			sm:static sm:border-t-0 sm:bg-transparent sm:px-8 sm:pb-8 sm:pt-0 sm:backdrop-blur-none"
+	>
 		<button type="submit" class="btn-primary w-full" disabled={submitting}>
 			{submitting ? 'Looking...' : 'Find my invitation'}
 		</button>

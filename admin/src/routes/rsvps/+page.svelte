@@ -82,6 +82,10 @@
 				<p class="mt-1 text-xs text-muted">
 					One number, exactly as the guest is asked. Invited {editing.partySize}; anything
 					above that is recorded as a plus-one.
+					{#if editing.maxExtraGuests !== null}
+						Their own form stops at {editing.partySize + editing.maxExtraGuests}, but you are
+						not held to that here.
+					{/if}
 				</p>
 			</div>
 

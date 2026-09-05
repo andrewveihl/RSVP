@@ -17,6 +17,7 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { CSRF_FIELD } from '$shared/csrf-fields';
+	import { pluralise } from '$shared/format';
 	import Stepper from '$lib/components/Stepper.svelte';
 	import type { ActionData, PageData } from './$types';
 
@@ -32,10 +33,15 @@
 	);
 	// A previous *decline* is stored as a total of zero, so it must not seed the
 	// stepper -- switching back to "yes" would then submit nobody at all.
+	//
+	// Clamped to the household's ceiling, which matters when the couple lowered it
+	// after a reply came in: without this the stepper would open above its own maximum
+	// on a number the server is now going to refuse, with no obvious way down.
 	let guestTotal = $state(
 		untrack(() => {
 			const previous = existing?.attending ? existing.total : 0;
-			return previous > 0 ? previous : (data.household?.partySize ?? 1);
+			const seed = previous > 0 ? previous : (data.household?.partySize ?? 1);
+			return Math.min(seed, data.maxGuests);
 		})
 	);
 	let submitting = $state(false);
@@ -111,9 +117,16 @@
 		{/if}
 	</div>
 {:else}
+	<!--
+		A phone gets a full-height column; a desktop gets a card of readable width,
+		centred. Same markup, and the difference is entirely in what `sm:` turns off --
+		the growing, the pinning and the edge-to-edge padding are all mobile answers to
+		mobile problems.
+	-->
 	<form
 		method="POST"
-		class="flex flex-1 flex-col"
+		class="flex flex-1 flex-col sm:my-10 sm:w-full sm:max-w-md sm:flex-none sm:self-center
+			sm:rounded-2xl sm:border sm:border-line sm:bg-surface sm:shadow-card"
 		use:enhance={() => {
 			submitting = true;
 			return async ({ update }) => {
@@ -133,7 +146,7 @@
 			<input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
 		</div>
 
-		<div class="flex-1 px-5 pb-4 pt-8">
+		<div class="flex-1 px-5 pb-4 pt-8 sm:flex-none sm:px-8">
 			<header class="text-center">
 				<h1 class="font-display text-2xl leading-tight text-ink">{data.household?.name}</h1>
 				{#if data.deadlineLabel}
@@ -204,7 +217,26 @@
 						describedBy="count-question"
 					/>
 				</div>
-				{#if data.household && guestTotal > data.household.partySize}
+				{#if data.capped && guestTotal >= data.maxGuests}
+					<!--
+						At the ceiling the couple set for this household. Said as a fact with a
+						way forward, not as a refusal: the guest has not done anything wrong,
+						and a family that genuinely needs another place needs to know who to ask.
+					-->
+					<p class="mt-3 text-center text-xs text-muted">
+						<!-- Worded the same way the server words its refusal, so a guest who
+						     manages to post past this is not told something different. -->
+						This invitation is for up to {pluralise(data.maxGuests, 'guest')}.
+						{#if data.site.contactEmail}
+							If that is not right, <a
+								class="text-accent underline-offset-4 hover:underline"
+								href="mailto:{data.site.contactEmail}">let us know</a
+							>.
+						{:else}
+							Please get in touch if that is not right.
+						{/if}
+					</p>
+				{:else if data.household && guestTotal > data.household.partySize}
 					<p class="mt-3 text-center text-xs text-muted">
 						That is {guestTotal - data.household.partySize} more than we had you down for --
 						no problem, we just wanted to check.
@@ -216,9 +248,13 @@
 		<!--
 			Pinned, so the button is reachable without scrolling on any phone. `sticky`
 			rather than `fixed` keeps it in the flow, so it never overlaps the content on a
-			short screen or with the keyboard open.
+			short screen or with the keyboard open. On a desktop there is nothing to pin it
+			against, so it becomes the last row of the card.
 		-->
-		<div class="sticky bottom-0 border-t border-line/70 bg-canvas/95 px-5 py-3 backdrop-blur">
+		<div
+			class="sticky bottom-0 border-t border-line/70 bg-canvas/95 px-5 py-3 backdrop-blur
+				sm:static sm:border-t-0 sm:bg-transparent sm:px-8 sm:pb-8 sm:pt-0 sm:backdrop-blur-none"
+		>
 			<button type="submit" class="btn-primary w-full" disabled={submitting}>
 				{#if submitting}
 					Sending...

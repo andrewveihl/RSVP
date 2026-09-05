@@ -20,8 +20,17 @@ import { countActivity, listActivity, logActivity } from '$shared/db/activity';
 import { createTemplate, listTemplates, recordEmail, listEmailLog, deleteTemplate } from '$shared/db/emails';
 import { getSection, setSection, resetSection } from '$shared/db/content';
 import { getSetting, setSetting } from '$shared/db/settings';
-import { getDashboardStats, responseTimeline, batchBreakdown } from '$shared/db/stats';
+import {
+	batchBreakdown,
+	dailyActivity,
+	getDashboardStats,
+	responseTimeline
+} from '$shared/db/stats';
 import { getDb } from '$shared/db/connection';
+import { visibleDetailsRows } from '$shared/details';
+import { localDayKey } from '$shared/format';
+import { defaultSiteContent } from '$shared/defaults';
+import type { DetailsContent } from '$shared/types';
 
 beforeEach(freshDatabase);
 afterEach(dropDatabase);
@@ -345,6 +354,50 @@ describe('site content', () => {
 	});
 });
 
+describe('the rows the Event Details page shows', () => {
+	const details = (overrides: Partial<DetailsContent> = {}): DetailsContent => ({
+		...defaultSiteContent().details,
+		...overrides
+	});
+
+	const ids = (content: DetailsContent) => visibleDetailsRows(content).map((row) => row.id);
+
+	it('shows every standard row that has something in it', () => {
+		expect(ids(details())).toEqual(['when', 'time', 'where', 'address', 'dress', 'parking']);
+	});
+
+	it('leaves out a row that was switched off, without losing its wording', () => {
+		const content = details({ hiddenRows: ['dress'] });
+
+		expect(ids(content)).not.toContain('dress');
+		// The text is still there, so turning it back on does not mean retyping it.
+		expect(content.dressCode).toBeTruthy();
+	});
+
+	it('leaves out an empty row as well', () => {
+		expect(ids(details({ dressCode: '', parking: '   ' }))).not.toContain('dress');
+		expect(ids(details({ dressCode: '', parking: '   ' }))).not.toContain('parking');
+	});
+
+	it('puts the extra rows after the standard ones', () => {
+		const content = details({
+			extras: [{ id: 'extra-1', label: 'Shuttle', value: 'Leaves at 10pm.' }]
+		});
+
+		expect(ids(content).at(-1)).toBe('extra-1');
+	});
+
+	it('survives a stored document with no hiddenRows, or a broken one', () => {
+		// A details document written before the switches existed.
+		const legacy = { ...details() } as Partial<DetailsContent>;
+		delete legacy.hiddenRows;
+		expect(ids(legacy as DetailsContent)).toContain('dress');
+
+		// And one hand-edited into nonsense: a guest page must not throw over this.
+		expect(ids(details({ hiddenRows: 'dress' as unknown as string[] }))).toContain('dress');
+	});
+});
+
 describe('settings', () => {
 	it('prefers a stored value over the environment default', () => {
 		expect(getSetting('couple_names')).toBe('Andrew & Madeline');
@@ -397,6 +450,29 @@ describe('stats', () => {
 		expect(timeline).toHaveLength(4);
 		expect(timeline.map((point) => point.responses)).toEqual([1, 0, 0, 1]);
 		expect(timeline.at(-1)?.cumulative).toBe(2);
+	});
+
+	/**
+	 * The bars are days in the wedding's timezone, not in UTC -- the same days the
+	 * activity log beside them prints. Grouping by the UTC date put an evening reply on
+	 * tomorrow's bar for every couple west of Greenwich.
+	 */
+	it('reports one bar per local day, ending today', () => {
+		const household = makeHousehold();
+		saveRsvp({ householdId: household.id, attending: true, guestCount: 1, plusOneCount: 0 });
+
+		const activity = dailyActivity(7);
+
+		expect(activity).toHaveLength(7);
+		expect(activity.at(-1)?.date).toBe(localDayKey(new Date()));
+		expect(activity.at(-1)?.responses).toBe(1);
+		// Every earlier day is present and empty, so the axis is evenly spaced.
+		expect(activity.slice(0, 6).every((day) => day.responses === 0)).toBe(true);
+	});
+
+	it('clamps a nonsensical window rather than building one', () => {
+		expect(dailyActivity(0)).toHaveLength(1);
+		expect(dailyActivity(10_000)).toHaveLength(366);
 	});
 
 	it('groups unbatched households under Unassigned', () => {

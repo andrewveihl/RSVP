@@ -71,6 +71,25 @@
 		</div>
 
 		<div>
+			<label class="label" for="maxExtraGuests">Extra guests allowed</label>
+			<input
+				id="maxExtraGuests"
+				name="maxExtraGuests"
+				type="number"
+				min="0"
+				max="20"
+				step="1"
+				class="field"
+				placeholder="No limit"
+				value={household?.maxExtraGuests ?? ''}
+			/>
+			<p class="mt-1 text-xs text-muted">
+				How many people they may add <em>on top of</em> the party size -- 1 for a partner,
+				0 for a family whose children are already counted. Leave it empty for no limit.
+			</p>
+		</div>
+
+		<div>
 			<label class="label" for="batch">Batch</label>
 			<input
 				id="batch"

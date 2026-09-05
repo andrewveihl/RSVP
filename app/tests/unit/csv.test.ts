@@ -56,6 +56,19 @@ describe('column guessing', () => {
 		expect(guessField('')).toBe('skip');
 	});
 
+	it('tells the guest allowance apart from the party size', () => {
+		expect(guessField('Extra guests allowed')).toBe('maxExtraGuests');
+		expect(guessField('Additional Guests')).toBe('maxExtraGuests');
+		expect(guessField('Guests allowed')).toBe('maxExtraGuests');
+
+		// Still the party size, not the allowance -- both contain "guests".
+		expect(guessField('Party Size')).toBe('partySize');
+		expect(guessField('Guest count')).toBe('partySize');
+		// The recorded plus-one count from an export is neither, and a wrong guess here
+		// would silently cap every household on the list.
+		expect(guessField('Plus ones')).toBe('skip');
+	});
+
 	it('never maps two columns to the same field', () => {
 		const mapping = guessMapping(['Name', 'Household Name', 'Email']);
 		expect(mapping.filter((field) => field === 'name')).toHaveLength(1);
@@ -79,6 +92,33 @@ describe('mapRows', () => {
 		expect(candidates[0]).toMatchObject({ name: 'The Smiths', email: 'a@example.com', partySize: 4 });
 		// An absent party size means one, not zero.
 		expect(candidates[1]).toMatchObject({ email: null, partySize: 1 });
+	});
+
+	it('reads the guest allowance, treating a blank cell as no limit', () => {
+		const withAllowance = ['name', 'maxExtraGuests'] as const;
+		const { candidates, problems } = mapRows(
+			[
+				['The Smiths', '1'],
+				// Zero is a real answer -- no extras at all -- and must not read as blank.
+				['The Joneses', '0'],
+				// A spreadsheet that has never heard of the column.
+				['The Bells', '']
+			],
+			[...withAllowance]
+		);
+
+		expect(candidates.map((row) => row.maxExtraGuests)).toEqual([1, 0, null]);
+		expect(problems).toHaveLength(0);
+	});
+
+	it('imports with no limit, and says so, when the allowance is unreadable', () => {
+		const { candidates, problems } = mapRows(
+			[['The Smiths', 'a few']],
+			['name', 'maxExtraGuests']
+		);
+
+		expect(candidates[0].maxExtraGuests).toBeNull();
+		expect(problems[0].message).toMatch(/not a valid number of extra guests/i);
 	});
 
 	it('refuses to import without a name column', () => {

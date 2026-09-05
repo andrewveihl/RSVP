@@ -49,9 +49,9 @@ const chance = (probability) => Math.random() < probability;
 
 const insertHousehold = db.prepare(
 	`INSERT INTO households
-		(id, name, token, email, phone, mailing_address, party_size, batch, notes,
-		 invitation_sent, invitation_sent_at, created_at, updated_at)
-	 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
+		(id, name, token, email, phone, mailing_address, party_size, max_extra_guests, batch,
+		 notes, invitation_sent, invitation_sent_at, created_at, updated_at)
+	 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
 );
 
 const insertRsvp = db.prepare(
@@ -85,6 +85,9 @@ db.transaction(() => {
 			chance(0.4) ? `555-01${String(index).padStart(2, '0')}` : null,
 			`${1 + index} ${pick(STREETS)}\n${pick(TOWNS)}\nST ${10_000 + index}`,
 			partySize,
+			// A spread of the three real cases: no limit, one partner, nobody extra.
+			// NULL is deliberately the commonest, because it is the default.
+			chance(0.5) ? null : chance(0.5) ? 1 : 0,
 			pick(BATCHES),
 			invitationSent ? 1 : 0,
 			invitationSent ? createdAt : null,

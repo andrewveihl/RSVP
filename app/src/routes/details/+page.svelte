@@ -1,23 +1,18 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
+	import { visibleDetailsRows } from '$shared/details';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const details = $derived(data.site.content.details);
 
-	/** The fixed rows, plus whatever custom fields the couple added. */
-	const rows = $derived(
-		[
-			{ id: 'when', label: 'When', value: details.dateLine },
-			{ id: 'time', label: 'Time', value: details.timeLine },
-			{ id: 'where', label: 'Where', value: details.venueName },
-			{ id: 'address', label: 'Address', value: details.venueAddress },
-			{ id: 'dress', label: 'Dress code', value: details.dressCode },
-			{ id: 'parking', label: 'Parking', value: details.parking },
-			...details.extras.map((extra) => ({ id: extra.id, label: extra.label, value: extra.value }))
-		].filter((row) => row.value?.trim())
-	);
+	/**
+	 * The fixed rows the couple has left switched on, plus their own custom fields.
+	 * Which rows those are is decided in `$shared/details`, because the admin editor
+	 * has to offer exactly the same list.
+	 */
+	const rows = $derived(visibleDetailsRows(details));
 </script>
 
 <svelte:head>

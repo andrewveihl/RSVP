@@ -19,6 +19,7 @@ export const EVENT_LABELS: Record<ActivityEventType, string> = {
 	settings_changed: 'Settings changed',
 	content_changed: 'Website edited',
 	backup_created: 'Backup created',
+	backup_deleted: 'Backup deleted',
 	backup_restored: 'Backup restored',
 	admin_login: 'Admin signed in'
 };

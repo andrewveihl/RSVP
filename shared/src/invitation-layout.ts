@@ -35,6 +35,14 @@ export interface InvitationText {
 	url: string;
 	showUrl: boolean;
 	showQr: boolean;
+	/**
+	 * Whether to reserve room for a photo at the head of the card.
+	 *
+	 * Set by the caller only when a photo is genuinely available to draw. The layout
+	 * cannot check that itself -- it never sees image bytes -- and reserving space for
+	 * a photo that then fails to render would leave a hole in the middle of the card.
+	 */
+	showPhoto: boolean;
 	showBorder: boolean;
 	font: 'serif' | 'sans';
 	accent: string;
@@ -87,6 +95,17 @@ export interface RectOp {
 
 export interface ImageOp {
 	kind: 'image';
+	/** Which picture this box is for; the renderers hold two different sources. */
+	role: 'qr' | 'photo';
+	/**
+	 * How the image fills its box.
+	 *
+	 * A QR is square and generated at the size we asked for, so stretching it to the
+	 * box is exact. A photo is whatever shape the couple uploaded, so it is fitted
+	 * inside the box and centred -- both renderers do that identically, which is why
+	 * the layout does not need to know the image's proportions.
+	 */
+	fit: 'stretch' | 'contain';
 	x: number;
 	y: number;
 	width: number;
@@ -206,10 +225,95 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 		});
 	}
 
-	let y = height - margin - 18;
+	// --- the foot -----------------------------------------------------------
+	// Anchored to the bottom rather than flowing after the text, so every card in a
+	// batch has its QR in the same place. Laid out first because the wording above has
+	// to know where it stops, and so does the photo.
+	//
+	// A photo makes the QR block a little smaller and sets it lower. That is where most
+	// of the room for the photo comes from -- the card is otherwise full.
+	const withPhoto = text.showPhoto;
+	const footOps: DrawOp[] = [];
+	/** The highest point the foot occupies; nothing above it may descend past this. */
+	let footTop: number;
+
+	if (text.showQr) {
+		const side = Math.min(width * (withPhoto ? 0.24 : 0.32), height * (withPhoto ? 0.16 : 0.22));
+		const qrY = margin + height * (withPhoto ? 0.05 : 0.075);
+		const nameSize = fit(text.householdName, 'display', inner, withPhoto ? 10 : 11, measure);
+		const nameY = qrY + side + 14;
+
+		footOps.push({
+			kind: 'image',
+			role: 'qr',
+			fit: 'stretch',
+			x: (width - side) / 2,
+			y: qrY,
+			width: side,
+			height: side
+		});
+
+		footOps.push({
+			kind: 'text',
+			text: text.householdName,
+			x: width / 2,
+			y: nameY,
+			size: nameSize,
+			face: 'display',
+			colour: 'ink'
+		});
+
+		if (text.qrCaption) {
+			footOps.push({
+				kind: 'text',
+				text: text.qrCaption,
+				x: width / 2,
+				y: qrY - 14,
+				size: 8,
+				face: 'body',
+				colour: 'accent'
+			});
+		}
+
+		if (text.showUrl) {
+			footOps.push({
+				kind: 'text',
+				text: text.url,
+				x: width / 2,
+				y: qrY - 26,
+				size: fit(text.url, 'body', inner, 7, measure, 4.5),
+				face: 'body',
+				colour: 'faint'
+			});
+		}
+
+		footTop = nameY + nameSize;
+	} else {
+		const nameSize = fit(text.householdName, 'display', inner, 12, measure);
+		const nameY = margin + height * 0.1;
+
+		footOps.push({
+			kind: 'text',
+			text: text.householdName,
+			x: width / 2,
+			y: nameY,
+			size: nameSize,
+			face: 'display',
+			colour: 'ink'
+		});
+
+		footTop = nameY + nameSize;
+	}
+
+	// --- the wording ----------------------------------------------------------
+	// Built against a cursor starting at zero and running downwards, so the block's
+	// height is known before it is placed. Without a photo it is then translated to
+	// exactly where it has always sat, and the card is unchanged.
+	const flow: (TextOp | LineOp)[] = [];
+	let y = 0;
 
 	if (text.eyebrow) {
-		ops.push({
+		flow.push({
 			kind: 'text',
 			text: text.eyebrow,
 			x: width / 2,
@@ -221,7 +325,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	}
 
 	y -= height * 0.075;
-	ops.push({
+	flow.push({
 		kind: 'text',
 		text: text.names,
 		x: width / 2,
@@ -233,7 +337,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 
 	if (text.inviteLine) {
 		y -= height * 0.042;
-		ops.push({
+		flow.push({
 			kind: 'text',
 			text: text.inviteLine,
 			x: width / 2,
@@ -245,7 +349,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	}
 
 	y -= height * 0.05;
-	ops.push({
+	flow.push({
 		kind: 'line',
 		x1: width / 2 - inner * 0.18,
 		y1: y,
@@ -257,7 +361,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 
 	if (text.dateLine) {
 		y -= height * 0.05;
-		ops.push({
+		flow.push({
 			kind: 'text',
 			text: text.dateLine,
 			x: width / 2,
@@ -270,7 +374,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 
 	if (text.timeLine) {
 		y -= height * 0.032;
-		ops.push({
+		flow.push({
 			kind: 'text',
 			text: text.timeLine,
 			x: width / 2,
@@ -283,7 +387,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 
 	if (text.venueName) {
 		y -= height * 0.04;
-		ops.push({
+		flow.push({
 			kind: 'text',
 			text: text.venueName,
 			x: width / 2,
@@ -297,63 +401,49 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	if (text.venueAddress) {
 		y -= height * 0.028;
 		for (const line of wrap(text.venueAddress, 'body', 9, inner, measure)) {
-			ops.push({ kind: 'text', text: line, x: width / 2, y, size: 9, face: 'body', colour: 'faint' });
+			flow.push({ kind: 'text', text: line, x: width / 2, y, size: 9, face: 'body', colour: 'faint' });
 			y -= height * 0.022;
 		}
 	}
 
-	// Anchored to the foot rather than flowing after the text, so every card in a batch
-	// has its QR in the same place.
-	if (text.showQr) {
-		const side = Math.min(width * 0.32, height * 0.22);
-		const qrY = margin + height * 0.075;
+	// --- placing the block, and the photo above it ----------------------------
+	const blockHeight = -y;
+	/** Where the block's first baseline sits when there is no photo above it. */
+	let top = height - margin - 18;
 
-		ops.push({ kind: 'image', x: (width - side) / 2, y: qrY, width: side, height: side });
+	if (withPhoto) {
+		const innerTop = height - margin * 0.9;
+		const gap = height * 0.03;
+		// Whatever is left once the wording and the foot have taken their room. The
+		// photo is sized to fit rather than given a fixed height, because how much of
+		// the card the wording uses depends entirely on how much of it was written.
+		const room = innerTop - footTop - blockHeight - gap * 2;
+		const photoHeight = Math.min(room, height * 0.3);
 
-		ops.push({
-			kind: 'text',
-			text: text.householdName,
-			x: width / 2,
-			y: qrY + side + 14,
-			size: fit(text.householdName, 'display', inner, 11, measure),
-			face: 'display',
-			colour: 'ink'
-		});
-
-		if (text.qrCaption) {
+		// Below a tenth of the card a photo is a smear rather than a picture, so a card
+		// with no room for one simply does not get one -- printing it over the wording
+		// would be worse than leaving it out.
+		if (photoHeight >= height * 0.1) {
 			ops.push({
-				kind: 'text',
-				text: text.qrCaption,
-				x: width / 2,
-				y: qrY - 14,
-				size: 8,
-				face: 'body',
-				colour: 'accent'
+				kind: 'image',
+				role: 'photo',
+				fit: 'contain',
+				x: margin,
+				y: innerTop - photoHeight,
+				width: inner,
+				height: photoHeight
 			});
+			top = innerTop - photoHeight - gap;
 		}
-
-		if (text.showUrl) {
-			ops.push({
-				kind: 'text',
-				text: text.url,
-				x: width / 2,
-				y: qrY - 26,
-				size: fit(text.url, 'body', inner, 7, measure, 4.5),
-				face: 'body',
-				colour: 'faint'
-			});
-		}
-	} else {
-		ops.push({
-			kind: 'text',
-			text: text.householdName,
-			x: width / 2,
-			y: margin + height * 0.1,
-			size: fit(text.householdName, 'display', inner, 12, measure),
-			face: 'display',
-			colour: 'ink'
-		});
 	}
+
+	for (const op of flow) {
+		ops.push(
+			op.kind === 'line' ? { ...op, y1: op.y1 + top, y2: op.y2 + top } : { ...op, y: op.y + top }
+		);
+	}
+
+	ops.push(...footOps);
 
 	return ops;
 }
@@ -390,7 +480,15 @@ function insertCard(text: InvitationText, width: number, height: number, measure
 	const qrY = (height - side) / 2 - height * 0.02;
 
 	if (text.showQr) {
-		ops.push({ kind: 'image', x: (width - side) / 2, y: qrY, width: side, height: side });
+		ops.push({
+			kind: 'image',
+			role: 'qr',
+			fit: 'stretch',
+			x: (width - side) / 2,
+			y: qrY,
+			width: side,
+			height: side
+		});
 	}
 
 	if (text.qrCaption) {

@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import Flash from '$lib/components/Flash.svelte';
 	import InvitationPreview from '$lib/components/InvitationPreview.svelte';
+	import { downscale } from '$lib/actions/downscale';
 	import { CSRF_FIELD } from '$shared/csrf-fields';
 	import { rsvpUrl } from '$shared/rsvp-url';
 	import type { InvitationText } from '$shared/invitation-layout';
@@ -53,7 +54,11 @@
 	const previewText = $derived<InvitationText>({
 		...design,
 		householdName: sample?.name ?? 'The Whitfield Family',
-		url: sample ? rsvpUrl(data.siteUrl, sample.token) : `${data.siteUrl}/rsvp/…`
+		url: sample ? rsvpUrl(data.siteUrl, sample.token) : `${data.siteUrl}/rsvp/…`,
+		// Only reserve the space when there is a saved photo to put in it. Ticking the
+		// box before choosing a file would otherwise reshape the whole card around an
+		// empty grey band -- and the save refuses that combination anyway.
+		showPhoto: design.showPhoto && data.invitation.photoId !== null
 	});
 
 	function toggle(id: string) {
@@ -77,7 +82,7 @@
 <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_22rem]">
 	<div class="space-y-4">
 		<!-- Wording and style. Saved separately from generating, so the design persists. -->
-		<form method="POST" action="?/save" class="card p-5">
+		<form method="POST" action="?/save" enctype="multipart/form-data" class="card p-5">
 			<input type="hidden" name={CSRF_FIELD} value={data.csrfToken} />
 
 			<div class="flex flex-wrap items-center justify-between gap-2">
@@ -160,7 +165,59 @@
 				</div>
 			</div>
 
+			<h2 class="mt-6 text-sm font-semibold text-ink">Photo</h2>
+
+			<div class="mt-3">
+				{#if data.invitation.photoId}
+					<!-- No "photo" or "image" in the alt text: a screen reader announces
+					     "image" already, so naming it again reads as a stutter. -->
+					<img
+						src="/images/{data.invitation.photoId}"
+						alt="Currently on the invitation"
+						class="mb-2 max-h-40 rounded-lg border border-line object-contain"
+					/>
+					<label class="mb-2 flex items-center gap-2 text-sm text-muted">
+						<input type="checkbox" name="removePhoto" value="1" class="accent-accent" />
+						Remove this photo
+					</label>
+				{/if}
+
+				<label class="label" for="photo">
+					{data.invitation.photoId ? 'Replace it' : 'Add a photo'}
+				</label>
+				<input
+					id="photo"
+					name="photo"
+					type="file"
+					accept="image/jpeg,image/png"
+					class="field"
+					use:downscale
+					onchange={() => (design.showPhoto = true)}
+				/>
+				<p class="mt-1 text-xs text-muted">
+					JPEG or PNG only -- those are the two formats that can go into a print-ready PDF.
+					It prints across the head of the full invitation, sized to whatever room your
+					wording leaves; the QR insert card stays as it is.
+				</p>
+			</div>
+
 			<div class="mt-3 flex flex-wrap gap-4">
+				<label class="flex items-center gap-2 text-sm text-ink">
+					<!--
+						Never disabled, even with no photo stored yet: choosing a file and
+						ticking this in one go has to work, and at that moment the photo
+						exists only in the file input. The server refuses the flag when no
+						photo ends up saved, which is the check that actually matters.
+					-->
+					<input
+						type="checkbox"
+						name="showPhoto"
+						value="1"
+						bind:checked={design.showPhoto}
+						class="accent-accent"
+					/>
+					Photo
+				</label>
 				<label class="flex items-center gap-2 text-sm text-ink">
 					<input type="checkbox" name="showBorder" value="1" bind:checked={design.showBorder} class="accent-accent" />
 					Border
@@ -312,6 +369,7 @@
 			bleedIn={forPrintShop ? 0.125 : 0}
 			showCropMarks={forPrintShop}
 			householdId={sample?.id ?? null}
+			photoId={data.invitation.photoId}
 		/>
 
 		{#if sample}

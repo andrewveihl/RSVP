@@ -19,12 +19,34 @@
  * total, chart and export working unchanged.
  */
 import { isRsvpClosed } from './config';
+import { pluralise } from './format';
 import { parseInteger } from './sanitize';
 import { logActivity, saveRsvp, type SaveResult } from './db';
 import type { Household } from './types';
 
-/** No cap on plus-ones by design, but a typo of 999999 is not a real answer. */
+/** The ceiling on any reply: a typo of 999999 is not a real answer. */
 export const MAX_GUESTS = 50;
+
+/** Just enough of a household to work out what it is allowed to reply. */
+export type GuestAllowance = Pick<Household, 'partySize' | 'maxExtraGuests'>;
+
+/**
+ * The largest total this household may reply with.
+ *
+ * The cap is per household because the right answer is: a couple bringing a partner
+ * gets one extra, a family whose children are already inside `partySize` gets none, and
+ * a household with no cap set keeps the old behaviour of adding whoever they like.
+ *
+ * `null` therefore means "no cap", not "zero" -- which matters, because that is what
+ * every household had before the column existed.
+ */
+export function maxGuestsFor(household: GuestAllowance): number {
+	const extra = household.maxExtraGuests;
+	if (extra === null || extra === undefined) return MAX_GUESTS;
+
+	const invited = Math.max(1, household.partySize);
+	return Math.min(MAX_GUESTS, invited + Math.max(0, extra));
+}
 
 export interface RsvpFormInput {
 	attending: unknown;
@@ -74,8 +96,11 @@ export function splitGuests(
  * Telling a bot precisely which field gave it away is free tuning information, and the
  * handful of real guests who could ever hit it are better served by a page that looks
  * like it worked than by an accusation.
+ *
+ * `maxTotal` is the household's own ceiling. It defaults to the global one, so a caller
+ * with nothing to say about the household still gets the previous behaviour.
  */
-export function validateRsvpForm(input: RsvpFormInput): ValidationResult {
+export function validateRsvpForm(input: RsvpFormInput, maxTotal = MAX_GUESTS): ValidationResult {
 	if (typeof input.honeypot === 'string' && input.honeypot.trim() !== '') {
 		return { ok: false, error: 'Thanks!', silent: true };
 	}
@@ -92,11 +117,20 @@ export function validateRsvpForm(input: RsvpFormInput): ValidationResult {
 		return { ok: true, attending: false, guestTotal: 0 };
 	}
 
-	const guestTotal = parseInteger(input.guestTotal, { min: 1, max: MAX_GUESTS });
+	const cap = Math.max(1, Math.min(MAX_GUESTS, Math.floor(maxTotal)));
+	const guestTotal = parseInteger(input.guestTotal, { min: 1, max: cap });
+
 	if (guestTotal === null) {
+		// "More than your invitation allows" and "not a number at all" are different
+		// mistakes and need different things said about them. A guest who is over their
+		// allowance has not done anything wrong -- they need to know who to ask.
+		const overCap = cap < MAX_GUESTS && parseInteger(input.guestTotal, { min: cap + 1 }) !== null;
+
 		return {
 			ok: false,
-			error: `Please tell us how many of you are coming (1 to ${MAX_GUESTS}).`,
+			error: overCap
+				? `This invitation is for up to ${pluralise(cap, 'guest')}. Please get in touch if that is not right and we will sort it out.`
+				: `Please tell us how many of you are coming (1 to ${cap}).`,
 			field: 'guestTotal'
 		};
 	}
@@ -108,7 +142,14 @@ export interface SubmitContext {
 	household: Household;
 	ipAddress?: string | null;
 	userAgent?: string | null;
-	/** True when an admin is recording the reply, which bypasses the deadline. */
+	/**
+	 * True when an admin is recording the reply.
+	 *
+	 * Bypasses the deadline *and* the household's guest cap. Both are limits on what we
+	 * ask guests to do, not on what the couple are allowed to write down: an admin
+	 * taking a phone call is recording what is true, and being refused by our own rule
+	 * would only mean editing the household first and re-typing the reply.
+	 */
 	asAdmin?: boolean;
 	now?: Date;
 }
@@ -119,7 +160,9 @@ export type SubmitOutcome =
 
 /** Validate, check the deadline, persist, and write the audit entry -- in that order. */
 export function submitRsvp(input: RsvpFormInput, context: SubmitContext): SubmitOutcome {
-	const validation = validateRsvpForm(input);
+	const cap = context.asAdmin ? MAX_GUESTS : maxGuestsFor(context.household);
+
+	const validation = validateRsvpForm(input, cap);
 	if (!validation.ok) {
 		return {
 			ok: false,

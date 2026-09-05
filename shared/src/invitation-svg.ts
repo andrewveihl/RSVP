@@ -65,6 +65,14 @@ function hexOrDefault(hex: string, fallback: string): string {
 export interface SvgOptions extends CardGeometry {
 	/** A data URL for the QR code, or null to leave a placeholder square. */
 	qrDataUrl?: string | null;
+	/**
+	 * URL for the couple's photo, or null for a placeholder.
+	 *
+	 * A plain same-origin URL rather than a data URL: the admin already serves these
+	 * bytes at `/images/[id]` behind the session, and inlining a wedding photo into
+	 * every re-render of the preview would mean base64-ing it on every keystroke.
+	 */
+	photoUrl?: string | null;
 }
 
 /**
@@ -117,10 +125,16 @@ export function invitationSvg(text: InvitationText, options: SvgOptions): string
 			);
 		} else if (op.kind === 'image') {
 			const y = flip(op.y + op.height);
-			if (options.qrDataUrl) {
+			const href = op.role === 'photo' ? options.photoUrl : options.qrDataUrl;
+
+			if (href) {
+				// `xMidYMid meet` is contain-and-centre, which is exactly what the PDF
+				// side computes for the same box -- so the two agree without either
+				// needing to be told the image's proportions.
+				const aspect = op.fit === 'contain' ? 'xMidYMid meet' : 'none';
 				parts.push(
 					`<image x="${x(op.x)}" y="${y}" width="${op.width}" height="${op.height}" ` +
-						`href="${escapeHtml(options.qrDataUrl)}" preserveAspectRatio="none"/>`
+						`href="${escapeHtml(href)}" preserveAspectRatio="${aspect}"/>`
 				);
 			} else {
 				// A placeholder, so the layout still reads correctly while the real code

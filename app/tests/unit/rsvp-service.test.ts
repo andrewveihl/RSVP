@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dropDatabase, freshDatabase, makeHousehold } from './helpers';
-import { MAX_GUESTS, splitGuests, submitRsvp, validateRsvpForm } from '$shared/rsvp-service';
+import {
+	MAX_GUESTS,
+	maxGuestsFor,
+	splitGuests,
+	submitRsvp,
+	validateRsvpForm
+} from '$shared/rsvp-service';
 import { getRsvpForHousehold } from '$shared/db/rsvps';
 import { listActivity } from '$shared/db/activity';
 import { isRsvpClosed, rsvpDeadlineDate } from '$shared/config';
@@ -45,10 +51,31 @@ describe('validateRsvpForm', () => {
 	});
 
 	it('accepts a party larger than the one invited', () => {
-		// Extras are uncapped by design; the split against the invited size happens later.
+		// Uncapped unless the household says otherwise; the split against the invited
+		// size happens later.
 		expect(validateRsvpForm({ attending: 'yes', guestTotal: '12' })).toMatchObject({
 			ok: true,
 			guestTotal: 12
+		});
+	});
+
+	it('refuses a total above the household ceiling, and says who to ask', () => {
+		const result = validateRsvpForm({ attending: 'yes', guestTotal: '5' }, 3);
+
+		expect(result).toMatchObject({ ok: false, field: 'guestTotal' });
+		expect((result as { error: string }).error).toContain('3 guests');
+		expect((result as { error: string }).error).toContain('get in touch');
+	});
+
+	it('still tells a guest the range when the number was nonsense', () => {
+		const result = validateRsvpForm({ attending: 'yes', guestTotal: 'lots' }, 3);
+		expect((result as { error: string }).error).toContain('1 to 3');
+	});
+
+	it('accepts the ceiling itself', () => {
+		expect(validateRsvpForm({ attending: 'yes', guestTotal: '3' }, 3)).toMatchObject({
+			ok: true,
+			guestTotal: 3
 		});
 	});
 
@@ -61,6 +88,27 @@ describe('validateRsvpForm', () => {
 		expect(validateRsvpForm({ attending: 'yes', guestTotal: '2', honeypot: '' })).toMatchObject({
 			ok: true
 		});
+	});
+});
+
+describe('maxGuestsFor', () => {
+	it('treats no cap as the global ceiling, which is how it always behaved', () => {
+		expect(maxGuestsFor({ partySize: 2, maxExtraGuests: null })).toBe(MAX_GUESTS);
+	});
+
+	it('adds the allowance to the invited party', () => {
+		// A couple who may bring one partner between them.
+		expect(maxGuestsFor({ partySize: 2, maxExtraGuests: 1 })).toBe(3);
+		// A family whose children are already counted, and who may bring nobody else.
+		expect(maxGuestsFor({ partySize: 5, maxExtraGuests: 0 })).toBe(5);
+	});
+
+	it('never exceeds the global ceiling, whatever is stored', () => {
+		expect(maxGuestsFor({ partySize: 40, maxExtraGuests: 20 })).toBe(MAX_GUESTS);
+	});
+
+	it('is never below one, so a broken party size cannot lock a guest out', () => {
+		expect(maxGuestsFor({ partySize: 0, maxExtraGuests: 0 })).toBe(1);
 	});
 });
 
@@ -107,6 +155,50 @@ describe('submitRsvp', () => {
 		expect(entries[0].description).toContain('The Smiths');
 		// The log records the number the guest actually gave.
 		expect(entries[0].description).toContain('attending (3)');
+	});
+
+	it('turns a guest away above their household cap, and stores nothing', () => {
+		const household = makeHousehold({ partySize: 2, maxExtraGuests: 1 });
+
+		const outcome = submitRsvp({ attending: 'yes', guestTotal: '4' }, { household });
+
+		expect(outcome).toMatchObject({ ok: false, reason: 'invalid', field: 'guestTotal' });
+		expect(getRsvpForHousehold(household.id)).toBeNull();
+	});
+
+	it('accepts exactly the cap', () => {
+		const household = makeHousehold({ partySize: 2, maxExtraGuests: 1 });
+		submitRsvp({ attending: 'yes', guestTotal: '3' }, { household });
+
+		expect(getRsvpForHousehold(household.id)).toMatchObject({
+			guestCount: 2,
+			plusOneCount: 1
+		});
+	});
+
+	it('lets a cap of zero refuse every extra, which null does not', () => {
+		const capped = makeHousehold({ partySize: 2, maxExtraGuests: 0 });
+		const uncapped = makeHousehold({ partySize: 2, maxExtraGuests: null });
+
+		expect(submitRsvp({ attending: 'yes', guestTotal: '3' }, { household: capped }).ok).toBe(false);
+		expect(submitRsvp({ attending: 'yes', guestTotal: '3' }, { household: uncapped }).ok).toBe(true);
+	});
+
+	/**
+	 * The cap is a limit on what we ask guests to do, not on what the couple may write
+	 * down. An admin taking a phone call is recording what is true, and being refused by
+	 * our own rule would only mean editing the household first and re-typing the reply.
+	 */
+	it('does not hold an admin to the cap', () => {
+		const household = makeHousehold({ partySize: 2, maxExtraGuests: 0 });
+
+		const outcome = submitRsvp(
+			{ attending: 'yes', guestTotal: '5' },
+			{ household, asAdmin: true }
+		);
+
+		expect(outcome.ok).toBe(true);
+		expect(getRsvpForHousehold(household.id)).toMatchObject({ guestCount: 2, plusOneCount: 3 });
 	});
 
 	it('records no plus-ones when the party arrives as invited', () => {

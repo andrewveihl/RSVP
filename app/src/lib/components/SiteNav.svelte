@@ -11,6 +11,7 @@
 	 * deep in the list is not left looking at links they have already passed.
 	 */
 	import { page } from '$app/state';
+	import { monogram } from '$shared/format';
 
 	let {
 		coupleNames,
@@ -21,13 +22,7 @@
 		page.url.pathname === href || (href !== '/' && page.url.pathname.startsWith(`${href}/`));
 
 	/** Initials for the wordmark: "Andrew & Madeline" becomes "A & M". */
-	const monogram = $derived(
-		coupleNames
-			.split(/\s*(?:&|and)\s*/i)
-			.map((part) => part.trim().charAt(0).toUpperCase())
-			.filter(Boolean)
-			.join(' & ') || 'Wedding'
-	);
+	const wordmark = $derived(monogram(coupleNames));
 
 	let strip = $state<HTMLElement | null>(null);
 
@@ -45,7 +40,7 @@
 			href="/"
 			class="font-display text-lg tracking-wide text-ink transition-colors hover:text-accent"
 		>
-			{monogram}
+			{wordmark}
 		</a>
 	</div>
 
@@ -54,10 +49,17 @@
 			`scrollbar-none` hides the bar but keeps the scrolling; the fades at each edge
 			are what actually signal there is more to see. `overscroll-x-contain` stops a
 			sideways swipe here from triggering the browser's back gesture.
+
+			`w-max` sizes the strip to its links and `mx-auto` then centres it, which is
+			what a desktop wants. `max-w-full` is what keeps that from breaking the phone:
+			once the links no longer fit, the strip is capped at the full width and scrolls
+			as before. `justify-center` would have looked identical on a desktop and cut
+			the first link off on a phone -- a centred flex row that overflows is clipped
+			at its start, and no amount of scrolling brings it back.
 		-->
 		<ul
 			bind:this={strip}
-			class="scrollbar-none flex snap-x gap-1 overflow-x-auto overscroll-x-contain px-5 pb-1"
+			class="scrollbar-none mx-auto flex w-max max-w-full snap-x gap-1 overflow-x-auto overscroll-x-contain px-5 pb-1"
 		>
 			{#each links as link (link.href)}
 				<li class="snap-start">

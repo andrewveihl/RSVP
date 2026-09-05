@@ -49,8 +49,11 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			venueName: 'The Venue',
 			venueAddress: '123 Somewhere Road, Your Town',
 			qrCaption: 'SCAN TO RSVP',
+			photoId: null,
 			showUrl: true,
 			showQr: true,
+			// Off until a photo is actually chosen, so the default card is unchanged.
+			showPhoto: false,
 			showBorder: true,
 			font: 'serif',
 			accent: '#8A9A7B'
@@ -86,7 +89,8 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			mapUrl: '',
 			dressCode: 'Semi-formal. Think garden party rather than black tie.',
 			parking: 'Free parking is available on site.',
-			extras: []
+			extras: [],
+			hiddenRows: []
 		},
 		party: {
 			heading: 'Wedding Party',

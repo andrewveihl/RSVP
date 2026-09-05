@@ -117,6 +117,7 @@ export const actions: Actions = {
 							phone: candidate.phone,
 							mailingAddress: candidate.mailingAddress,
 							partySize: candidate.partySize,
+							maxExtraGuests: candidate.maxExtraGuests,
 							batch: candidate.batch,
 							notes: candidate.notes
 						});

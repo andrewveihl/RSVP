@@ -7,7 +7,7 @@ import { logger } from '$shared/logger';
 import { formatLongDate } from '$shared/format';
 import { isValidTokenFormat } from '$shared/tokens';
 import { getHouseholdWithRsvpByToken } from '$shared/db';
-import { MAX_GUESTS, submitRsvp } from '$shared/rsvp-service';
+import { MAX_GUESTS, maxGuestsFor, submitRsvp } from '$shared/rsvp-service';
 
 /**
  * The household's own RSVP page.
@@ -50,7 +50,13 @@ export const load: PageServerLoad = async ({ params, cookies, parent }) => {
 			: null,
 		closed,
 		deadlineLabel: deadline ? formatLongDate(deadline) : '',
-		maxGuests: MAX_GUESTS,
+		// This household's own ceiling, so the stepper simply stops there rather than
+		// letting a guest pick a number the server is going to refuse. The server checks
+		// it again regardless -- the form is a convenience, not the rule.
+		maxGuests: household ? maxGuestsFor(household) : MAX_GUESTS,
+		// Whether that ceiling is a real limit the couple set, or just the global sanity
+		// bound. The form says different things about the two.
+		capped: household !== null && household.maxExtraGuests !== null,
 		// Absent when no wedding date is configured, which hides the button rather than
 		// offering a calendar file for an invalid date.
 		calendarUrl: weddingDateValue(site.weddingDate) ? '/rsvp/wedding.ics' : null,

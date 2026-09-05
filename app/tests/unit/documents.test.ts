@@ -7,7 +7,7 @@ import { qrPng, qrSvg, qrDataUrl } from '$shared/qr';
 import { createZip, safeEntryName } from '$shared/zip';
 import { crc32 } from '$shared/crc32';
 import { invitationSvg, previewMeasure } from '$shared/invitation-svg';
-import { layoutCard } from '$shared/invitation-layout';
+import { layoutCard, type ImageOp, type TextOp } from '$shared/invitation-layout';
 import { invitationTextFor } from '$shared/invitations';
 import { defaultSiteContent } from '$shared/defaults';
 import type { InvitationContent } from '$shared/types';
@@ -273,6 +273,87 @@ describe('the invitation layout, shared by the PDF and the preview', () => {
 		// With the QR gone the household is still named -- otherwise the card would not
 		// say who it is for at all.
 		expect(kinds({ showQr: false }).texts).toContain('The Whitfields');
+	});
+
+	describe('the photo', () => {
+		const geometry = { widthIn: 5, heightIn: 7, variant: 'full' as const };
+		const ops = (showPhoto: boolean) =>
+			layoutCard({ ...text(), showPhoto }, geometry, previewMeasure).ops;
+
+		const imageOps = (showPhoto: boolean, role: 'qr' | 'photo') =>
+			ops(showPhoto).filter((op): op is ImageOp => op.kind === 'image' && op.role === role);
+
+		const textOps = (showPhoto: boolean) =>
+			ops(showPhoto).filter((op): op is TextOp => op.kind === 'text');
+
+		it('adds nothing at all when there is no photo', () => {
+			expect(imageOps(false, 'photo')).toHaveLength(0);
+			// And the QR is still the one image on the card.
+			expect(imageOps(false, 'qr')).toHaveLength(1);
+		});
+
+		it('places it across the head of the card, fitted rather than stretched', () => {
+			const [photo] = imageOps(true, 'photo');
+
+			expect(photo).toBeDefined();
+			expect(photo.fit).toBe('contain');
+			// Full width inside the margins, and sitting inside a 7in (504pt) card.
+			expect(photo.width).toBeCloseTo(288, 5);
+			expect(photo.height).toBeGreaterThan(0);
+			expect(photo.y + photo.height).toBeLessThanOrEqual(504);
+		});
+
+		it('leaves the QR stretched, because it is square and generated to size', () => {
+			expect(imageOps(true, 'qr')[0].fit).toBe('stretch');
+		});
+
+		/**
+		 * The card is otherwise full, so the photo has to take its space from somewhere.
+		 * What it must never take it from is the wording -- an invitation with the venue
+		 * printed across the couple's own faces is worse than one with no photo at all.
+		 */
+		it('never overlaps the wording', () => {
+			const [photo] = imageOps(true, 'photo');
+			const highestText = Math.max(...textOps(true).map((op) => op.y + op.size));
+
+			expect(highestText).toBeLessThanOrEqual(photo.y);
+		});
+
+		/**
+		 * The other half of the same invariant, at the bottom of the card. The wording
+		 * must clear the foot block, not just the photo -- squeezing a photo in above by
+		 * pushing the venue down onto the QR would be no better.
+		 */
+		it('keeps the wording clear of the foot', () => {
+			// One card, laid out once: a fresh household would carry a fresh token, and
+			// the URL is one of the strings this has to tell apart.
+			const card = { ...text(), showPhoto: true };
+			const laid = layoutCard(card, geometry, previewMeasure).ops;
+			const texts = laid.filter((op): op is TextOp => op.kind === 'text');
+
+			// The foot is exactly these three; everything else came from the flow.
+			const isFoot = (op: TextOp) =>
+				op.text === card.householdName || op.text === card.qrCaption || op.text === card.url;
+
+			const foot = texts.filter(isFoot);
+			const flow = texts.filter((op) => !isFoot(op));
+
+			expect(foot.length).toBeGreaterThan(0);
+			expect(flow.length).toBeGreaterThan(0);
+
+			const footTop = Math.max(...foot.map((op) => op.y + op.size));
+			expect(Math.min(...flow.map((op) => op.y))).toBeGreaterThan(footTop);
+		});
+
+		/**
+		 * The regression that matters most: a couple who never add a photo must get the
+		 * same card they were printing before the feature existed.
+		 */
+		it('does not move anything on a card with the photo off', () => {
+			const first = textOps(false)[0];
+			// 7in card, 0.5in margin, less the 18pt the first line has always sat at.
+			expect(first.y).toBeCloseTo(504 - 36 - 18, 5);
+		});
 	});
 
 	it('shrinks a long line rather than letting it run off the card', () => {

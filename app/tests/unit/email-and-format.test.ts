@@ -15,9 +15,12 @@ import { defaultSiteContent } from '$shared/defaults';
 import type { InvitationContent } from '$shared/types';
 import {
 	countdownTo,
+	dateLineMatches,
 	formatLongDate,
 	formatRelative,
 	formatShortDate,
+	localDayKey,
+	monogram,
 	pad2,
 	percent,
 	pluralise
@@ -158,6 +161,28 @@ describe('formatting', () => {
 		expect(formatShortDate('2027-05-29T12:00:00Z')).toBe('May 29, 2027');
 	});
 
+	/**
+	 * The wedding date is stored as a bare `YYYY-MM-DD`, and ECMAScript reads that as
+	 * UTC midnight while these formatters render in the local zone. West of UTC that
+	 * printed the day before -- which is how the site's footer came to disagree with the
+	 * Event Details page, whose line is typed by hand.
+	 *
+	 * The suite pins TZ=UTC, where the bug is invisible, so this one case moves the zone
+	 * on purpose. Node re-reads TZ per call, so the restore in `finally` is enough.
+	 */
+	it('reads a bare date as a calendar day, in any timezone', () => {
+		const original = process.env.TZ;
+		try {
+			for (const zone of ['America/Chicago', 'Pacific/Honolulu', 'Asia/Tokyo']) {
+				process.env.TZ = zone;
+				expect(formatLongDate('2027-05-29'), zone).toBe('Saturday, May 29, 2027');
+				expect(formatShortDate('2027-05-29'), zone).toBe('May 29, 2027');
+			}
+		} finally {
+			process.env.TZ = original;
+		}
+	});
+
 	it('falls back rather than printing "Invalid Date"', () => {
 		expect(formatLongDate('not a date', 'TBC')).toBe('TBC');
 		expect(formatLongDate(null, '')).toBe('');
@@ -206,6 +231,90 @@ describe('formatting', () => {
 		expect(percent(1, 4)).toBe(25);
 		// Guarded, so an empty guest list reads 0% rather than NaN%.
 		expect(percent(1, 0)).toBe(0);
+	});
+
+	/**
+	 * The counterpart to the bare-date case above, in the other direction: naming the
+	 * day an instant fell on. `toISOString().slice(0, 10)` answers the UTC day, which
+	 * is how an evening RSVP came to be counted on the next day's bar in the charts.
+	 */
+	describe('localDayKey', () => {
+		it('names the local day, not the UTC one', () => {
+			const original = process.env.TZ;
+			try {
+				// 02:30 UTC on the 30th is still the evening of the 29th in Chicago.
+				const evening = new Date('2027-05-30T02:30:00Z');
+
+				process.env.TZ = 'America/Chicago';
+				expect(localDayKey(evening)).toBe('2027-05-29');
+
+				// ...and already the morning of the 30th in Tokyo.
+				process.env.TZ = 'Asia/Tokyo';
+				expect(localDayKey(evening)).toBe('2027-05-30');
+			} finally {
+				process.env.TZ = original;
+			}
+		});
+
+		it('pads a single-digit month and day', () => {
+			expect(localDayKey(new Date(2027, 0, 5))).toBe('2027-01-05');
+		});
+
+		it('answers empty rather than "Invalid Date" for nothing usable', () => {
+			expect(localDayKey(null)).toBe('');
+			expect(localDayKey('not a date')).toBe('');
+		});
+	});
+
+	describe('the wordmark monogram', () => {
+		it('takes the initial of each name', () => {
+			expect(monogram('Andrew & Madeline')).toBe('A & M');
+			expect(monogram('Andrew and Madeline')).toBe('A & M');
+			expect(monogram('andrew & madeline')).toBe('A & M');
+		});
+
+		/**
+		 * The separator used to be matched as a bare `and`, which also matched the one
+		 * inside "Andrew" -- splitting the names into "", "rew" and "Madeline", and
+		 * putting "R & M" in the corner of every page on the site.
+		 */
+		it('does not split on "and" inside a name', () => {
+			expect(monogram('Andrew & Madeline')).not.toBe('R & M');
+			expect(monogram('Amanda & Sandy')).toBe('A & S');
+			expect(monogram('Alexander & Cassandra')).toBe('A & C');
+		});
+
+		it('copes with one name and with none', () => {
+			expect(monogram('Madeline')).toBe('M');
+			expect(monogram('')).toBe('Wedding');
+			expect(monogram('   ')).toBe('Wedding');
+		});
+	});
+
+	describe('dateLineMatches', () => {
+		it('accepts a line that names the same day, however it is written', () => {
+			for (const line of [
+				'Saturday, May 29, 2027',
+				'May 29th, 2027',
+				'the 29th of May, 2027',
+				'Sat 29 May 2027',
+				'5/29/2027'
+			]) {
+				expect(dateLineMatches(line, '2027-05-29'), line).toBe(true);
+			}
+		});
+
+		it('spots a line left behind when the date moved', () => {
+			expect(dateLineMatches('Saturday, May 29, 2027', '2027-06-12')).toBe(false);
+			expect(dateLineMatches('Saturday, May 29, 2026', '2027-05-29')).toBe(false);
+			expect(dateLineMatches('Saturday, May 22, 2027', '2027-05-29')).toBe(false);
+		});
+
+		it('stays quiet when there is nothing to compare', () => {
+			expect(dateLineMatches('', '2027-05-29')).toBe(true);
+			expect(dateLineMatches('Saturday, May 29, 2027', '')).toBe(true);
+			expect(dateLineMatches('Saturday, May 29, 2027', 'not a date')).toBe(true);
+		});
 	});
 });
 

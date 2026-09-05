@@ -28,6 +28,7 @@ export const GET: RequestHandler = ({ locals, url }) => {
 		'Phone',
 		'Mailing address',
 		'Party size',
+		'Extra guests allowed',
 		'Batch',
 		'Notes',
 		'Status',
@@ -46,6 +47,9 @@ export const GET: RequestHandler = ({ locals, url }) => {
 		household.phone ?? '',
 		household.mailingAddress ?? '',
 		household.partySize,
+		// Blank rather than a number when there is no cap, so a re-import reads it back
+		// as "no limit" instead of inventing one.
+		household.maxExtraGuests ?? '',
 		household.batch ?? '',
 		household.notes ?? '',
 		household.status,

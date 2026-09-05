@@ -51,7 +51,9 @@ export function resetDatabase(): void {
  */
 export function createHousehold(
 	label: string,
-	rsvp?: { attending: boolean; guestCount: number; plusOneCount: number }
+	rsvp?: { attending: boolean; guestCount: number; plusOneCount: number },
+	/** Extra guests allowed beyond the party of 3; undefined leaves it uncapped. */
+	maxExtraGuests?: number
 ): Fixture {
 	const db = new Database(DATABASE_PATH);
 	db.pragma('foreign_keys = ON');
@@ -66,10 +68,10 @@ export function createHousehold(
 	try {
 		db.prepare(
 			`INSERT INTO households
-				(id, name, token, email, phone, mailing_address, party_size, batch, notes,
-				 invitation_sent, invitation_sent_at, created_at, updated_at)
-			 VALUES (?, ?, ?, NULL, NULL, NULL, 3, 'E2E', NULL, 0, NULL, ?, ?)`
-		).run(id, name, token, now, now);
+				(id, name, token, email, phone, mailing_address, party_size, max_extra_guests,
+				 batch, notes, invitation_sent, invitation_sent_at, created_at, updated_at)
+			 VALUES (?, ?, ?, NULL, NULL, NULL, 3, ?, 'E2E', NULL, 0, NULL, ?, ?)`
+		).run(id, name, token, maxExtraGuests ?? null, now, now);
 
 		if (rsvp) {
 			db.prepare(

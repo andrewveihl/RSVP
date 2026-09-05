@@ -15,6 +15,15 @@ export interface Household {
 	mailingAddress: string | null;
 	/** How many people we expect from this household, used for the invited total. */
 	partySize: number;
+	/**
+	 * How many guests *beyond* `partySize` this household may add when replying, or
+	 * null for no limit.
+	 *
+	 * Per household because the right answer differs household by household: a couple
+	 * bringing a partner needs one, a family whose children are already counted needs
+	 * none, and an open invitation needs no cap at all.
+	 */
+	maxExtraGuests: number | null;
 	/** Free-form grouping ("Save the dates", "Batch 2") for per-batch analytics. */
 	batch: string | null;
 	/** Which side of the family, if the couple track it. Free-form and optional. */
@@ -32,7 +41,7 @@ export interface Rsvp {
 	attending: boolean;
 	/** Guests attending from the household itself (excluding plus-ones). */
 	guestCount: number;
-	/** Additional guests the household is bringing. Uncapped by design. */
+	/** Additional guests the household is bringing, within its own cap if it has one. */
 	plusOneCount: number;
 	submittedAt: string;
 	updatedAt: string;
@@ -63,6 +72,7 @@ export type ActivityEventType =
 	| 'settings_changed'
 	| 'content_changed'
 	| 'backup_created'
+	| 'backup_deleted'
 	| 'backup_restored'
 	| 'admin_login';
 
@@ -150,6 +160,12 @@ export interface DetailsContent {
 	dressCode: string;
 	parking: string;
 	extras: DetailsField[];
+	/**
+	 * Ids of the standard rows the couple has switched off -- see `DETAILS_ROWS` in
+	 * `details.ts`. Kept separate from the text so turning a row back on restores the
+	 * wording they wrote rather than an empty field.
+	 */
+	hiddenRows: string[];
 }
 
 export interface PartyMember {
@@ -212,9 +228,18 @@ export interface InvitationContent {
 	venueAddress: string;
 	/** Caption printed under the QR code. */
 	qrCaption: string;
+	/**
+	 * Id of a row in `site_images` to print at the head of the card, or null.
+	 *
+	 * Restricted to JPEG and PNG on upload: pdf-lib embeds only those two, and a WebP
+	 * that previewed perfectly and then vanished from the print would be the worst
+	 * possible way to find that out.
+	 */
+	photoId: string | null;
 	/** Whether the fallback URL is printed under the caption. */
 	showUrl: boolean;
 	showQr: boolean;
+	showPhoto: boolean;
 	showBorder: boolean;
 	/** 'serif' or 'sans' -- which of the two standard PDF families to set it in. */
 	font: 'serif' | 'sans';

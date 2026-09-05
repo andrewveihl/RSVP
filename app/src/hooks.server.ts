@@ -105,8 +105,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			event: 'request',
 			requestId: event.locals.requestId,
 			method: event.request.method,
-			// Never log the path of an RSVP page: the token is in it.
-			path: event.url.pathname.startsWith('/rsvp/') ? '/rsvp/[token]' : event.url.pathname,
+			path: safePath(event.url.pathname),
 			status: response.status,
 			durationMs: Date.now() - startedAt
 		},
@@ -116,11 +115,24 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
+/**
+ * A path safe to write to a log.
+ *
+ * A household's token is in the URL of its RSVP page, and it is the only credential
+ * that page has. Logs get shipped, tailed over someone's shoulder and pasted into bug
+ * reports, so the token is replaced rather than recorded -- and it has to be replaced
+ * on *every* path that reaches the log, which is why this is a function and not a
+ * ternary written out once.
+ */
+function safePath(pathname: string): string {
+	return pathname.startsWith('/rsvp/') ? '/rsvp/[token]' : pathname;
+}
+
 export const handleError: HandleServerError = ({ error, event }) => {
 	const requestId = event.locals?.requestId ?? 'unknown';
 	logError('Unhandled server error', error, {
 		requestId,
-		path: event.url.pathname,
+		path: safePath(event.url.pathname),
 		method: event.request.method
 	});
 	return {

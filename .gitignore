@@ -5,17 +5,25 @@ build/
 .env.*
 !.env.example
 
+# Runtime directories at the repository root.
+#
+# Anchored with a leading slash, and that matters more than it looks. An unanchored
+# `backups/` matches a directory of that name at *any* depth -- which silently swallowed
+# `admin/src/routes/backups/`, the route behind the Backups screen. The nav link, the
+# E2E tests and the README entry were all committed; the page itself never was, and
+# nothing said so. `data/` is the same trap waiting for the first `src/lib/data/`.
+
 # Local SQLite database and its WAL sidecars.
-data/
+/data/
 *.db
 *.db-shm
 *.db-wal
 
 # Backups written by scripts/backup.js
-backups/
+/backups/
 
 # TLS material, fetched by scripts/init-letsencrypt.sh
-certbot/
+/certbot/
 
 # Test artefacts
 test-results/

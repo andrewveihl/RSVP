@@ -97,6 +97,7 @@ export const IMPORT_FIELDS = [
 	'phone',
 	'mailingAddress',
 	'partySize',
+	'maxExtraGuests',
 	'batch',
 	'notes',
 	'skip'
@@ -110,6 +111,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
 	phone: 'Phone',
 	mailingAddress: 'Mailing address',
 	partySize: 'Party size',
+	maxExtraGuests: 'Extra guests allowed',
 	batch: 'Batch / group',
 	notes: 'Notes',
 	skip: 'Skip this column'
@@ -127,6 +129,11 @@ const HEADER_PATTERNS: [RegExp, ImportField][] = [
 	[/e-?mail/i, 'email'],
 	[/(phone|mobile|cell|tel)/i, 'phone'],
 	[/(address|street|mailing|city|zip|postal)/i, 'mailingAddress'],
+	// Ahead of the party-size pattern, whose "guests" would otherwise claim this column
+	// and import an allowance as the party size itself. Deliberately narrow: a wrong
+	// guess here silently caps a household, and the mapping step is right there for
+	// anything this does not recognise.
+	[/(extra|additional) *guests?|guests? *(allowed|allowance|cap|limit)|max *(extra|guests?)/i, 'maxExtraGuests'],
 	[/(party|guests?|seats|size|count|headcount|number)/i, 'partySize'],
 	[/(batch|group|tier|wave|round)/i, 'batch'],
 	[/(notes?|comment|remark)/i, 'notes'],
@@ -160,6 +167,8 @@ export interface ImportCandidate {
 	phone: string | null;
 	mailingAddress: string | null;
 	partySize: number;
+	/** Extra guests allowed beyond the party size; null means no limit. */
+	maxExtraGuests: number | null;
 	batch: string | null;
 	notes: string | null;
 	/** 1-based row number in the source file, for error messages. */
@@ -228,6 +237,18 @@ export function mapRows(rows: string[][], mapping: ImportField[]): MappedImport 
 			problems.push({ line, message: `"${rawSize}" is not a valid party size; using 1.` });
 		}
 
+		// An empty cell is "no limit", which is the right default for a spreadsheet that
+		// has never heard of the column. Only a value that is present but unreadable is
+		// worth reporting.
+		const rawExtra = cleanText(pick('maxExtraGuests'));
+		const maxExtraGuests = rawExtra ? parseInteger(rawExtra, { min: 0, max: 20 }) : null;
+		if (rawExtra && maxExtraGuests === null) {
+			problems.push({
+				line,
+				message: `"${rawExtra}" is not a valid number of extra guests; importing with no limit.`
+			});
+		}
+
 		// Reported under the spelling of the *first* occurrence, which is the one the
 		// admin will recognise from the row above rather than a lower-cased repeat.
 		const key = name.toLowerCase();
@@ -244,6 +265,7 @@ export function mapRows(rows: string[][], mapping: ImportField[]): MappedImport 
 			phone: cleanText(pick('phone')) || null,
 			mailingAddress: cleanText(pick('mailingAddress'), { multiline: true }) || null,
 			partySize: partySize ?? 1,
+			maxExtraGuests,
 			batch: cleanText(pick('batch')) || null,
 			notes: cleanText(pick('notes'), { multiline: true }) || null,
 			line

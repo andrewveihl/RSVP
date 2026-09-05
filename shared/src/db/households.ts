@@ -18,6 +18,7 @@ export interface HouseholdRow {
 	phone: string | null;
 	mailing_address: string | null;
 	party_size: number;
+	max_extra_guests: number | null;
 	batch: string | null;
 	side: string | null;
 	notes: string | null;
@@ -36,6 +37,9 @@ export function rowToHousehold(row: HouseholdRow): Household {
 		phone: row.phone,
 		mailingAddress: row.mailing_address,
 		partySize: row.party_size,
+		// A row written before migration 003 has no column value at all, so `undefined`
+		// is normalised to null here -- "no cap", which is how it behaved before.
+		maxExtraGuests: row.max_extra_guests ?? null,
 		batch: row.batch,
 		side: row.side,
 		notes: row.notes,
@@ -63,6 +67,8 @@ export interface NewHousehold {
 	phone?: string | null;
 	mailingAddress?: string | null;
 	partySize?: number;
+	/** Extra guests allowed beyond `partySize`; null or omitted means no cap. */
+	maxExtraGuests?: number | null;
 	batch?: string | null;
 	side?: string | null;
 	notes?: string | null;
@@ -81,6 +87,7 @@ export function createHousehold(input: NewHousehold): Household {
 		phone: input.phone ?? null,
 		mailing_address: input.mailingAddress ?? null,
 		party_size: input.partySize ?? 1,
+		max_extra_guests: input.maxExtraGuests ?? null,
 		batch: input.batch ?? null,
 		side: input.side ?? null,
 		notes: input.notes ?? null,
@@ -92,11 +99,11 @@ export function createHousehold(input: NewHousehold): Household {
 
 	db.prepare(
 		`INSERT INTO households
-			(id, name, token, email, phone, mailing_address, party_size, batch, side, notes,
-			 invitation_sent, invitation_sent_at, created_at, updated_at)
+			(id, name, token, email, phone, mailing_address, party_size, max_extra_guests,
+			 batch, side, notes, invitation_sent, invitation_sent_at, created_at, updated_at)
 		 VALUES
-			(@id, @name, @token, @email, @phone, @mailing_address, @party_size, @batch, @side, @notes,
-			 @invitation_sent, @invitation_sent_at, @created_at, @updated_at)`
+			(@id, @name, @token, @email, @phone, @mailing_address, @party_size, @max_extra_guests,
+			 @batch, @side, @notes, @invitation_sent, @invitation_sent_at, @created_at, @updated_at)`
 	).run(row);
 
 	return rowToHousehold(row);
@@ -133,6 +140,7 @@ export interface HouseholdUpdate {
 	phone?: string | null;
 	mailingAddress?: string | null;
 	partySize?: number;
+	maxExtraGuests?: number | null;
 	batch?: string | null;
 	side?: string | null;
 	notes?: string | null;
@@ -144,6 +152,7 @@ const UPDATABLE: Record<keyof HouseholdUpdate, string> = {
 	phone: 'phone',
 	mailingAddress: 'mailing_address',
 	partySize: 'party_size',
+	maxExtraGuests: 'max_extra_guests',
 	batch: 'batch',
 	side: 'side',
 	notes: 'notes'

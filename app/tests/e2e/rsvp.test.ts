@@ -118,6 +118,51 @@ test('a household that already replied sees its answer and can change it', async
 	expect(storedRsvp(household.token)).toMatchObject({ guest_count: 3, plus_one_count: 1 });
 });
 
+test('a household cannot bring more guests than its invitation allows', async ({ page }) => {
+	// Invited 3, and allowed one more between them.
+	const household = createHousehold('The Capped Family', undefined, 1);
+	await page.goto(`/rsvp/${household.token}`);
+
+	await page.getByText('Joyfully accepts').click();
+	await expect(page.locator('[aria-live="polite"]').first()).toHaveText('3');
+
+	await page.getByRole('button', { name: 'One more' }).click();
+	await expect(page.locator('[aria-live="polite"]').first()).toHaveText('4');
+
+	// At the ceiling: the stepper stops, and says so rather than just going dead.
+	await expect(page.getByRole('button', { name: 'One more' })).toBeDisabled();
+	await expect(page.getByText('This invitation is for up to 4 guests')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Send our reply' }).click();
+	await expect(page.getByTestId('rsvp-confirmation')).toBeVisible();
+	expect(storedRsvp(household.token)).toMatchObject({ guest_count: 3, plus_one_count: 1 });
+});
+
+test('the cap is enforced on the server, not just in the stepper', async ({ page, request }) => {
+	const household = createHousehold('The Persistent Family', undefined, 0);
+
+	// Load the page first, for a CSRF cookie and a token that match each other --
+	// otherwise this would be rejected at the CSRF check and prove nothing.
+	await page.goto(`/rsvp/${household.token}`);
+	const csrf = await page.locator('input[name="csrf_token"]').inputValue();
+	const cookies = await page.context().cookies();
+	const cookieHeader = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+
+	// Posted straight past the form, as somebody with dev tools open would.
+	const response = await request.post(`/rsvp/${household.token}`, {
+		headers: {
+			origin: 'http://127.0.0.1:4273',
+			accept: 'text/html',
+			cookie: cookieHeader,
+			'content-type': 'application/x-www-form-urlencoded'
+		},
+		form: { csrf_token: csrf, attending: 'yes', guestTotal: '9' }
+	});
+
+	expect(response.status()).toBe(400);
+	expect(storedRsvp(household.token)).toBeUndefined();
+});
+
 test('updating replaces the reply rather than adding a second one', async ({ page }) => {
 	const household = createHousehold('The Switching Family', {
 		attending: false,
@@ -172,19 +217,36 @@ test('the confirmation offers a calendar file and a way to change the reply', as
 	await expect(page.locator('input[value="yes"]')).toBeChecked();
 });
 
-test('the RSVP pages carry no site navigation', async ({ page }) => {
+test('the RSVP page is bare on a phone and framed on a desktop', async ({ page }) => {
 	const household = createHousehold('The Uncluttered Family');
+
+	// On a phone the chrome is gone: the nav and footer were a third of a Pixel 5
+	// viewport on a page whose entire job is one question, and they pushed the submit
+	// button below the fold.
+	await page.setViewportSize({ width: 393, height: 727 });
 	await page.goto(`/rsvp/${household.token}`);
 
-	// The nav and footer were a third of a phone viewport on a single-question page.
-	await expect(page.locator('nav')).toHaveCount(0);
-	await expect(page.locator('main')).toHaveCount(0);
+	await expect(page.getByRole('navigation')).toBeHidden();
 
 	// And the whole thing fits without scrolling.
 	const overflow = await page.evaluate(
 		() => document.documentElement.scrollHeight - window.innerHeight
 	);
 	expect(overflow).toBeLessThanOrEqual(1);
+
+	// A desktop has that space many times over, and without the nav the page is a dead
+	// end -- a guest who follows their link straight here can reach nothing else.
+	await page.setViewportSize({ width: 1280, height: 800 });
+
+	await expect(page.getByRole('navigation')).toBeVisible();
+	await expect(
+		page.getByRole('navigation').getByRole('link', { name: 'Our Story' })
+	).toBeVisible();
+
+	// The form becomes a card of readable width rather than a phone layout stretched
+	// across a monitor.
+	const formWidth = await page.locator('form').first().evaluate((el) => el.clientWidth);
+	expect(formWidth).toBeLessThan(600);
 });
 
 test('an unknown token offers the name look-up instead of an error', async ({ page }) => {

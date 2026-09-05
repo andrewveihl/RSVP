@@ -48,6 +48,12 @@
 				<dd class="text-ink">{household.partySize}</dd>
 			</div>
 			<div>
+				<dt class="text-xs uppercase tracking-wide text-muted">Extra guests allowed</dt>
+				<dd class="text-ink">
+					{household.maxExtraGuests === null ? 'No limit' : household.maxExtraGuests}
+				</dd>
+			</div>
+			<div>
 				<dt class="text-xs uppercase tracking-wide text-muted">Batch</dt>
 				<dd class="text-ink">{household.batch ?? '--'}</dd>
 			</div>

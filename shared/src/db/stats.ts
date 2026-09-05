@@ -7,8 +7,30 @@
  */
 import type { DashboardStats, ResponsePoint } from '../types';
 import { getDb } from './connection';
+import { localDayKey } from '../format';
 import { countRsvpsBetween } from './rsvps';
 import { listReminderBatches } from './activity';
+
+/**
+ * Timestamps are stored as UTC, but every day the site names is a *local* day -- see
+ * `localDayKey`. `'localtime'` makes SQLite group them the same way, so a chart and the
+ * activity log beside it agree about which day a reply arrived on.
+ *
+ * With no `TZ` set this is UTC and nothing changes, which is exactly what the unit
+ * suite runs under.
+ */
+const LOCAL_DAY = `strftime('%Y-%m-%d', submitted_at, 'localtime')`;
+
+/** Local midnight on a `YYYY-MM-DD`, for stepping a day at a time. */
+function dayFromKey(key: string): Date {
+	const [year, month, day] = key.split('-').map(Number);
+	return new Date(year, month - 1, day);
+}
+
+/** A day key SQLite could actually produce; anything else came from a corrupt row. */
+function isDayKey(value: unknown): value is string {
+	return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
 
 export function getDashboardStats(): DashboardStats {
 	const row = getDb()
@@ -56,17 +78,22 @@ export function getDashboardStats(): DashboardStats {
  * evenly spaced in time instead of compressing a quiet fortnight into one step.
  */
 export function responseTimeline(): ResponsePoint[] {
-	const rows = getDb()
-		.prepare(
-			`SELECT substr(submitted_at, 1, 10) AS date,
+	const rows = (
+		getDb()
+			.prepare(
+				`SELECT ${LOCAL_DAY} AS date,
 				COUNT(*) AS responses,
 				SUM(CASE WHEN attending = 1 THEN 1 ELSE 0 END) AS attending,
 				SUM(CASE WHEN attending = 0 THEN 1 ELSE 0 END) AS declined
 			 FROM rsvps
 			 GROUP BY date
 			 ORDER BY date`
-		)
-		.all() as { date: string; responses: number; attending: number; declined: number }[];
+			)
+			.all() as { date: string; responses: number; attending: number; declined: number }[]
+	)
+		// `strftime` answers NULL for a timestamp it cannot parse. Dropping those rows
+		// costs one bar; letting one through would end the loop below before it started.
+		.filter((row) => isDayKey(row.date));
 
 	if (rows.length === 0) return [];
 
@@ -74,11 +101,18 @@ export function responseTimeline(): ResponsePoint[] {
 	const points: ResponsePoint[] = [];
 	let cumulative = 0;
 
-	const start = new Date(`${rows[0].date}T00:00:00Z`);
-	const end = new Date(`${rows[rows.length - 1].date}T00:00:00Z`);
+	// Stepped a calendar day at a time rather than by 86,400,000ms: adding a fixed
+	// number of milliseconds repeats one day and skips another across the two
+	// daylight-saving changes a long engagement will cross.
+	const cursor = dayFromKey(rows[0].date);
+	const end = dayFromKey(rows[rows.length - 1].date);
 
-	for (let day = start; day <= end; day = new Date(day.getTime() + 86_400_000)) {
-		const key = day.toISOString().slice(0, 10);
+	// A hand-edited timestamp far in the future would otherwise fill the admin's memory
+	// one point at a time. Five years of daily points is far past any real engagement.
+	const MAX_POINTS = 2000;
+
+	while (cursor <= end && points.length < MAX_POINTS) {
+		const key = localDayKey(cursor);
 		const row = byDate.get(key);
 		cumulative += row?.responses ?? 0;
 		points.push({
@@ -88,6 +122,7 @@ export function responseTimeline(): ResponsePoint[] {
 			attending: row?.attending ?? 0,
 			declined: row?.declined ?? 0
 		});
+		cursor.setDate(cursor.getDate() + 1);
 	}
 
 	return points;
@@ -152,21 +187,34 @@ export function reminderEffectiveness(limit = 10): ReminderEffect[] {
 
 /** Replies per day over the recent past, for the activity bar chart. */
 export function dailyActivity(days = 30): { date: string; responses: number }[] {
-	const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+	// Clamped rather than trusted: `NaN` days would otherwise loop zero times and hand
+	// the chart an empty axis with no hint as to why.
+	const span = Number.isFinite(days) ? Math.max(1, Math.min(366, Math.floor(days))) : 30;
+
+	// Local midnight, `span` days ago. Stepping the date rather than subtracting
+	// milliseconds keeps the window exactly that many calendar days wide either side
+	// of a daylight-saving change.
+	const start = new Date();
+	start.setHours(0, 0, 0, 0);
+	start.setDate(start.getDate() - (span - 1));
+
 	const rows = getDb()
 		.prepare(
-			`SELECT substr(submitted_at, 1, 10) AS date, COUNT(*) AS responses
-			 FROM rsvps WHERE substr(submitted_at, 1, 10) >= ?
+			`SELECT ${LOCAL_DAY} AS date, COUNT(*) AS responses
+			 FROM rsvps WHERE ${LOCAL_DAY} >= ?
 			 GROUP BY date ORDER BY date`
 		)
-		.all(since) as { date: string; responses: number }[];
+		.all(localDayKey(start)) as { date: string; responses: number }[];
 
 	const byDate = new Map(rows.map((row) => [row.date, row.responses]));
 	const out: { date: string; responses: number }[] = [];
+	const cursor = new Date(start);
 
-	for (let index = days - 1; index >= 0; index -= 1) {
-		const key = new Date(Date.now() - index * 86_400_000).toISOString().slice(0, 10);
+	for (let index = 0; index < span; index += 1) {
+		const key = localDayKey(cursor);
 		out.push({ date: key, responses: byDate.get(key) ?? 0 });
+		cursor.setDate(cursor.getDate() + 1);
 	}
+
 	return out;
 }

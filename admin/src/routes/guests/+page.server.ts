@@ -79,6 +79,19 @@ export const load: PageServerLoad = ({ url }) => {
 	};
 };
 
+/**
+ * The per-household extra-guest cap, as the form submits it.
+ *
+ * An empty field means "no limit" and has to survive as null: 0 is a different answer
+ * entirely -- it forbids every plus-one. A number outside the range is clamped rather
+ * than dropped, so a mistyped 200 cannot quietly turn a cap into no cap at all.
+ */
+function readExtraCap(value: FormDataEntryValue | null): number | null {
+	const raw = value?.toString().trim() ?? '';
+	if (raw === '') return null;
+	return clampInteger(raw, 0, 20, 0);
+}
+
 /** The household fields a form submits, normalised once for both create and update. */
 function readHousehold(form: FormData) {
 	return {
@@ -87,6 +100,7 @@ function readHousehold(form: FormData) {
 		phone: optionalText(form.get('phone'), { max: 60 }),
 		mailingAddress: optionalText(form.get('mailingAddress'), { multiline: true, max: 500 }),
 		partySize: clampInteger(form.get('partySize'), 1, 50, 1),
+		maxExtraGuests: readExtraCap(form.get('maxExtraGuests')),
 		batch: optionalText(form.get('batch'), { max: 80 }),
 		side: optionalText(form.get('side'), { max: 80 }),
 		notes: optionalText(form.get('notes'), { multiline: true, max: 2000 })

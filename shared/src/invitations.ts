@@ -9,7 +9,7 @@
  * how to put a draw operation onto a PDF page. The admin's live preview renders the
  * same operations as SVG, so the preview cannot disagree with what gets printed.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import { qrPng } from './qr';
 import { rsvpUrl } from './tokens';
 import { hexToTriplet } from './theme';
@@ -49,6 +49,52 @@ export interface CardOptions extends CardGeometry {
 
 export const DEFAULT_CARD: CardOptions = { widthIn: 5, heightIn: 7, variant: 'full' };
 
+/**
+ * The couple's photo, ready to embed.
+ *
+ * Passed in rather than read from the database here, so this module stays free of any
+ * database import and keeps working in a test with nothing but bytes.
+ *
+ * pdf-lib embeds PNG and JPEG and nothing else, which is why the upload refuses the
+ * other formats: a WebP that previewed perfectly and then silently vanished from the
+ * print is the worst possible way to find that out.
+ */
+export interface InvitationPhoto {
+	data: Uint8Array;
+	mimetype: string;
+}
+
+/** The image formats that can actually be printed on a card. */
+export const PRINTABLE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png']);
+
+interface Box {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/**
+ * Fits an image inside its box without distorting it, centred.
+ *
+ * The SVG preview gets the identical result from `preserveAspectRatio="xMidYMid meet"`,
+ * which is why the layout can hand both renderers a plain box and stay out of it.
+ */
+function containBox(box: Box, naturalWidth: number, naturalHeight: number): Box {
+	if (naturalWidth <= 0 || naturalHeight <= 0) return box;
+
+	const scale = Math.min(box.width / naturalWidth, box.height / naturalHeight);
+	const width = naturalWidth * scale;
+	const height = naturalHeight * scale;
+
+	return {
+		x: box.x + (box.width - width) / 2,
+		y: box.y + (box.height - height) / 2,
+		width,
+		height
+	};
+}
+
 const INK = rgb(0.1, 0.1, 0.1);
 const FAINT = rgb(0.45, 0.45, 0.45);
 const CROP = rgb(0, 0, 0);
@@ -73,7 +119,9 @@ interface Fonts {
 export function invitationTextFor(
 	invitation: InvitationContent,
 	household: Household,
-	siteUrl: string
+	siteUrl: string,
+	/** True only when a photo is actually available to draw -- see `showPhoto`. */
+	hasPhoto = false
 ): InvitationText {
 	return {
 		eyebrow: invitation.eyebrow,
@@ -88,6 +136,7 @@ export function invitationTextFor(
 		url: rsvpUrl(siteUrl, household.token),
 		showUrl: invitation.showUrl,
 		showQr: invitation.showQr,
+		showPhoto: invitation.showPhoto && hasPhoto,
 		showBorder: invitation.showBorder,
 		font: invitation.font,
 		accent: invitation.accent
@@ -115,13 +164,34 @@ function measurer(fonts: Fonts): Measure {
 	return (text, face: FaceName, size) => fonts[face].widthOfTextAtSize(text, size);
 }
 
+/**
+ * Embeds the couple's photo, or returns null if it cannot be embedded.
+ *
+ * A photo that pdf-lib rejects -- a truncated file, or a format that slipped past the
+ * upload check -- must not take a whole batch of invitations down with it. The card
+ * then lays out without one, which is a card the couple can still post.
+ */
+async function embedPhoto(pdf: PDFDocument, photo: InvitationPhoto | null): Promise<PDFImage | null> {
+	if (!photo || photo.data.length === 0) return null;
+
+	try {
+		return photo.mimetype === 'image/jpeg'
+			? await pdf.embedJpg(photo.data)
+			: await pdf.embedPng(photo.data);
+	} catch {
+		return null;
+	}
+}
+
 async function drawCard(
 	page: PDFPage,
 	pdf: PDFDocument,
 	fonts: Fonts,
 	text: InvitationText,
 	options: CardOptions,
-	qrBytes: Uint8Array | null
+	qrBytes: Uint8Array | null,
+	/** Embedded once for the whole batch by the caller, not once per page. */
+	photo: PDFImage | null
 ): Promise<void> {
 	const layout = layoutCard(text, options, measurer(fonts));
 	const accent = accentColour(text.accent);
@@ -163,13 +233,20 @@ async function drawCard(
 				font,
 				color: colours[op.colour]
 			});
-		} else if (op.kind === 'image' && qrBytes) {
-			const image = await pdf.embedPng(qrBytes);
+		} else if (op.kind === 'image') {
+			const image =
+				op.role === 'photo' ? photo : qrBytes ? await pdf.embedPng(qrBytes) : null;
+			// A missing image leaves its space empty rather than failing the whole batch.
+			if (!image) continue;
+
+			const box =
+				op.fit === 'contain' ? containBox(op, image.width, image.height) : op;
+
 			page.drawImage(image, {
-				x: ox + op.x,
-				y: oy + op.y,
-				width: op.width,
-				height: op.height
+				x: ox + box.x,
+				y: oy + box.y,
+				width: box.width,
+				height: box.height
 			});
 		}
 	}
@@ -185,13 +262,19 @@ export async function buildInvitationPdf(
 	households: Household[],
 	invitation: InvitationContent,
 	siteUrl: string,
-	options: CardOptions = DEFAULT_CARD
+	options: CardOptions = DEFAULT_CARD,
+	photo: InvitationPhoto | null = null
 ): Promise<Uint8Array> {
 	const pdf = await PDFDocument.create();
 	pdf.setTitle(`${invitation.names} -- invitations`);
 	pdf.setCreator('wedding-rsvp');
 
 	const fonts = await embedFonts(pdf, invitation.font);
+
+	// Embedded once for the whole document. Two hundred pages all showing the same
+	// photo should carry it once, not two hundred times -- the difference between a
+	// 2MB PDF and a 400MB one nobody can email.
+	const photoImage = invitation.showPhoto ? await embedPhoto(pdf, photo) : null;
 
 	const bleed = inches(options.bleedIn ?? 0);
 	const width = inches(options.widthIn) + bleed * 2;
@@ -202,12 +285,12 @@ export async function buildInvitationPdf(
 		// White ground first, so the bleed area is never transparent.
 		page.drawRectangle({ x: 0, y: 0, width, height, color: rgb(1, 1, 1) });
 
-		const text = invitationTextFor(invitation, household, siteUrl);
+		const text = invitationTextFor(invitation, household, siteUrl, photoImage !== null);
 		// 600px at any print size is well past what a two-inch symbol can resolve, so
 		// the QR is never what limits print quality.
 		const qr = text.showQr ? await qrPng(text.url, { size: 600, margin: 2 }) : null;
 
-		await drawCard(page, pdf, fonts, text, options, qr);
+		await drawCard(page, pdf, fonts, text, options, qr, photoImage);
 	}
 
 	if (households.length === 0) {
@@ -230,7 +313,8 @@ export async function buildSingleInvitation(
 	household: Household,
 	invitation: InvitationContent,
 	siteUrl: string,
-	options: CardOptions = DEFAULT_CARD
+	options: CardOptions = DEFAULT_CARD,
+	photo: InvitationPhoto | null = null
 ): Promise<Uint8Array> {
-	return buildInvitationPdf([household], invitation, siteUrl, options);
+	return buildInvitationPdf([household], invitation, siteUrl, options, photo);
 }

@@ -109,6 +109,12 @@ so there is no toggle to hunt for and no flash of the wrong theme on first paint
 Photos, Registry, FAQ. Any of them can be switched off from the admin panel, which
 removes it from the navigation and makes its URL a 404.
 
+Event Details is a list of rows -- when, time, where, address, dress code, parking, and
+any number of the couple's own. Each of the fixed rows can be switched off individually,
+which leaves it off the page while keeping the wording, so a dress code that is not being
+announced does not have to be deleted to be hidden. An empty field is left out either
+way.
+
 ### RSVP
 
 Each household gets a URL containing a 32-character random token -- 192 bits of
@@ -118,14 +124,24 @@ credential; there is no guest login.
 - **`/rsvp/<token>`** -- that household's form, pre-filled with their previous answer if
   they have already replied. They can change it until the deadline.
 
-  It is built for a phone, because that is what everyone replies on. The page carries no
-  site navigation or footer and fits **one screen with no scrolling** on a Pixel 5, with
-  the submit button always in reach. Guests answer one question -- *how many of you are
-  coming?* -- with stepper buttons rather than a number field, so the keyboard never
-  opens over the button. The household-versus-plus-one split is derived against the
-  invited party size rather than asked for: nobody invited as a party of four can be
-  expected to know whether that is "4 and 0" or "3 and 1". The confirmation offers a
-  calendar file and a quiet way to change the reply.
+  It is built for a phone, because that is what everyone replies on. On a phone it
+  carries no site navigation or footer and fits **one screen with no scrolling** on a
+  Pixel 5, with the submit button always in reach. On a desktop the chrome comes back
+  and the form becomes a centred card: the space is free there, and without the nav the
+  page was a dead end for anyone who followed their link straight to it.
+
+  Guests answer one question -- *how many of you are coming?* -- with stepper buttons
+  rather than a number field, so the keyboard never opens over the button. The
+  household-versus-plus-one split is derived against the invited party size rather than
+  asked for: nobody invited as a party of four can be expected to know whether that is
+  "4 and 0" or "3 and 1". The confirmation offers a calendar file and a quiet way to
+  change the reply.
+
+  Each household can be given its **own ceiling** on extra guests -- one for a partner,
+  none for a family whose children are already counted, or no limit at all, which is the
+  default and what every household had before the setting existed. The stepper stops
+  there and says who to ask; the server checks it again regardless. An admin recording a
+  phone call is not held to it, for the same reason the deadline is soft.
 - **`/rsvp`** -- "find my invitation", for anyone who lost their link, and where the
   universal QR code points. It searches by name and never renders a token: an exact
   match becomes a redirect, and an ambiguous one shows names to pick from.
@@ -142,9 +158,9 @@ Sign in with `ADMIN_PASSWORD`. There is one account, because there are two of yo
 | Screen | What it does |
 |---|---|
 | Dashboard | Head counts, response rate, recent activity, per-batch and per-reminder breakdowns |
-| Guests | Search, filter, sort, edit, bulk actions; CSV import with column mapping |
+| Guests | Search, filter, sort, edit, bulk actions; a per-household cap on extra guests; CSV import with column mapping |
 | RSVPs | Record or amend a reply on someone's behalf -- for phone calls and late responses |
-| Invitations | Live preview, every line and colour editable; print-ready PDFs, per-guest ZIP, or QR PNGs |
+| Invitations | Live preview, every line, photo and colour editable; print-ready PDFs, per-guest ZIP, or QR PNGs |
 | Labels | Avery 5160 / 5162 / 5163 / 5164 sheets from the stored addresses |
 | QR codes | Per household and one universal code, as PNG or SVG |
 | Emails | Template editor with merge fields and a live preview; send to everyone still pending |
@@ -195,6 +211,14 @@ the venue, the QR caption -- along with the lettering, an accent colour, and whe
 border, the QR code and the printed fallback link appear at all. A **for a print shop**
 toggle adds 0.125in bleed and crop marks; leave it off for printing at home.
 
+A **photo** can be printed across the head of the full invitation. It is sized to
+whatever room the wording leaves rather than given a fixed height, and is dropped rather
+than printed over the text when there is none -- how much of the card the wording uses
+depends entirely on how much of it was written. JPEG and PNG only, because those are the
+two formats pdf-lib can embed, and a WebP that previewed perfectly and then vanished from
+the print is the worst possible way to find that out. The photo is embedded once per
+document, not once per page. The QR insert card is unchanged.
+
 The invitation inherits its venue, date and time from Settings and the Event Details
 page until a line is deliberately written on the card, so "the venue" has one home rather
 than three. An invitation says "Four in the afternoon" where a website says "4:00 pm",
@@ -217,8 +241,15 @@ The admin container takes a snapshot a minute after it starts and every 24 hours
 that, keeping `BACKUP_RETENTION_DAYS` of them. Snapshots use SQLite's `VACUUM INTO`, so
 they are consistent even though they are taken while the site is live.
 
-Both volumes are on the same disk, so **copy them off the machine periodically** -- a
-backup beside the original survives a mistake, not a dead disk.
+The **Backups** screen lists what has been kept, takes one on demand, and downloads one
+to your own machine. Both volumes are on the same disk, so **copy the most recent one
+off the machine periodically** -- a backup beside the original survives a mistake, not a
+dead disk.
+
+Restoring is on the same screen and is the only action in the panel that asks you to
+type a word, because it is the only one that cannot be undone by doing the opposite. It
+saves a snapshot of the current data alongside the backups before it starts, so
+restoring the wrong night is itself recoverable.
 
 ```bash
 docker compose exec admin node /repo/scripts/backup.js   # a snapshot right now

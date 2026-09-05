@@ -125,6 +125,15 @@ export const MIGRATIONS: Migration[] = [
 
 			CREATE INDEX idx_households_side ON households(side);
 		`
+	},
+	{
+		name: '003-household-extra-guest-cap',
+		sql: `
+			-- How many guests beyond party_size this household may add when replying.
+			-- NULL means no cap, which is what every existing row gets and what the
+			-- form did for everyone before this column existed.
+			ALTER TABLE households ADD COLUMN max_extra_guests INTEGER;
+		`
 	}
 ];
 

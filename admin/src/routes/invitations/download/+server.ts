@@ -1,8 +1,15 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { CSRF_FIELD, verifyCsrf } from '$shared/csrf';
-import { getHouseholdsByIds, listHouseholds, logActivity } from '$shared/db';
-import { BLEED_IN, buildInvitationPdf, CARD_PRESETS, type CardOptions } from '$shared/invitations';
+import { getHouseholdsByIds, getImage, listHouseholds, logActivity } from '$shared/db';
+import {
+	BLEED_IN,
+	buildInvitationPdf,
+	CARD_PRESETS,
+	PRINTABLE_PHOTO_TYPES,
+	type CardOptions,
+	type InvitationPhoto
+} from '$shared/invitations';
 import { invitationContent } from '$lib/server/invitation-content';
 import { qrPng } from '$shared/qr';
 import { getConfig } from '$shared/config';
@@ -68,6 +75,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 
 	const options = cardOptions(form);
 	const invitation = invitationContent();
+	const photo = invitationPhoto(invitation.showPhoto ? invitation.photoId : null);
 	const siteUrl = getConfig().siteUrl;
 	const format = form.get('format')?.toString() ?? 'pdf';
 
@@ -84,7 +92,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		const files = await Promise.all(
 			households.map(async (household) => ({
 				name: safeEntryName(household.name, 'pdf'),
-				data: await buildInvitationPdf([household], invitation, siteUrl, options)
+				data: await buildInvitationPdf([household], invitation, siteUrl, options, photo)
 			}))
 		);
 		return fileResponse(createZip(dedupeNames(files)), 'application/zip', 'invitations.zip');
@@ -103,7 +111,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		return fileResponse(createZip(dedupeNames(files)), 'application/zip', 'qr-codes.zip');
 	}
 
-	const pdf = await buildInvitationPdf(households, invitation, siteUrl, options);
+	const pdf = await buildInvitationPdf(households, invitation, siteUrl, options, photo);
 	const filename =
 		households.length === 1
 			? safeEntryName(households[0].name, 'pdf')
@@ -111,6 +119,22 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 
 	return fileResponse(Buffer.from(pdf), 'application/pdf', filename);
 };
+
+/**
+ * The couple's invitation photo, ready to embed, or null.
+ *
+ * The format is re-checked on the way out rather than trusted from the upload: a row
+ * written by an older build, or an id edited straight into the database, must not reach
+ * pdf-lib as something it cannot embed.
+ */
+function invitationPhoto(photoId: string | null): InvitationPhoto | null {
+	if (!photoId) return null;
+
+	const image = getImage(photoId);
+	if (!image?.data || !PRINTABLE_PHOTO_TYPES.has(image.mimetype)) return null;
+
+	return { data: new Uint8Array(image.data), mimetype: image.mimetype };
+}
 
 function fileResponse(body: Buffer, type: string, filename: string): Response {
 	return new Response(new Uint8Array(body), {

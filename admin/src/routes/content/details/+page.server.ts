@@ -4,10 +4,15 @@ import { newRowId, readRows } from '$lib/server/content-forms';
 import { getSection, getSetting, logActivity, setSection, setSetting } from '$shared/db';
 import { getConfig } from '$shared/config';
 import { cleanText, safeUrl } from '$shared/sanitize';
+import { DETAILS_ROWS } from '$shared/details';
 import type { DetailsField } from '$shared/types';
 
 export const load: PageServerLoad = () => ({
 	details: getSection('details', getSetting('couple_names')),
+	rows: DETAILS_ROWS,
+	// The real wedding date, shown alongside the hand-written "When" line so the two
+	// can be compared here rather than discovered to disagree on the live site.
+	weddingDate: getSetting('wedding_date'),
 	siteUrl: getConfig().siteUrl
 });
 
@@ -27,6 +32,11 @@ export const actions: Actions = {
 		const venueName = cleanText(result.form.get('venueName'), { max: 160 });
 		const venueAddress = cleanText(result.form.get('venueAddress'), { multiline: true, max: 400 });
 
+		// An unchecked checkbox submits nothing, so absence is what says "hide this row".
+		const hiddenRows = DETAILS_ROWS.filter(
+			(row) => result.form.get(`show_${row.id}`) !== '1'
+		).map((row) => row.id);
+
 		setSection('details', {
 			heading: cleanText(result.form.get('heading'), { max: 120 }) || 'Event Details',
 			dateLine: cleanText(result.form.get('dateLine'), { max: 160 }),
@@ -38,7 +48,8 @@ export const actions: Actions = {
 			mapUrl: safeUrl(result.form.get('mapUrl')) ?? '',
 			dressCode: cleanText(result.form.get('dressCode'), { multiline: true, max: 1000 }),
 			parking: cleanText(result.form.get('parking'), { multiline: true, max: 1000 }),
-			extras
+			extras,
+			hiddenRows
 		});
 
 		// Mirrored into settings because invitations and reminder emails read the venue
