@@ -142,6 +142,11 @@ export const MIGRATIONS: Migration[] = [
  *
  * Returns the number applied, which the caller logs on boot so a surprise migration
  * on a production container is visible in the logs.
+ *
+ * ALTER TABLE ADD COLUMN is not fully transactional in older SQLite builds: the
+ * schema change can stick even when the wrapping transaction rolls back, leaving
+ * user_version behind the actual schema. To handle that, "duplicate column name"
+ * errors are caught and treated as already-applied so the version counter catches up.
  */
 export function migrate(db: Database): number {
 	const current = db.pragma('user_version', { simple: true }) as number;
@@ -149,13 +154,24 @@ export function migrate(db: Database): number {
 
 	for (let index = current; index < MIGRATIONS.length; index += 1) {
 		const migration = MIGRATIONS[index];
-		const run = db.transaction(() => {
-			db.exec(migration.sql);
-			// The pragma cannot be parameterised, so the value is interpolated -- it is
-			// a loop counter, never anything a user supplied.
-			db.pragma(`user_version = ${index + 1}`);
-		});
-		run();
+		try {
+			const run = db.transaction(() => {
+				db.exec(migration.sql);
+				// The pragma cannot be parameterised, so the value is interpolated -- it is
+				// a loop counter, never anything a user supplied.
+				db.pragma(`user_version = ${index + 1}`);
+			});
+			run();
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (msg.includes('duplicate column name')) {
+				// The column already exists from a previously interrupted migration.
+				// Bump user_version so we don't retry on every boot.
+				db.pragma(`user_version = ${index + 1}`);
+			} else {
+				throw err;
+			}
+		}
 		applied += 1;
 	}
 
