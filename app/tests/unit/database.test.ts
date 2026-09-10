@@ -27,6 +27,7 @@ import {
 	responseTimeline
 } from '$shared/db/stats';
 import { getDb } from '$shared/db/connection';
+import { MIGRATIONS, migrate } from '$shared/db/schema';
 import { visibleDetailsRows } from '$shared/details';
 import { localDayKey } from '$shared/format';
 import { defaultSiteContent } from '$shared/defaults';
@@ -309,6 +310,56 @@ describe('email templates and log', () => {
 		});
 
 		expect(listEmailLog()[0]).toMatchObject({ status: 'failed', error: 'Mailbox unavailable' });
+	});
+});
+
+/**
+ * These cover a real outage: migration 003 crash-looped both containers into a 502.
+ * The guest app and the admin app share one database file and both migrate on boot, so
+ * started together they raced -- and the loser died on a column the winner had just
+ * added.
+ */
+describe('schema migrations', () => {
+	const version = () => getDb().pragma('user_version', { simple: true }) as number;
+
+	it('brings a fresh database fully up to date', () => {
+		// `freshDatabase` already migrated; running again must find nothing to do.
+		expect(version()).toBe(MIGRATIONS.length);
+		expect(migrate(getDb())).toBe(0);
+	});
+
+	it('is safe to run twice over, which is what two containers do', () => {
+		const before = version();
+
+		expect(migrate(getDb())).toBe(0);
+		expect(migrate(getDb())).toBe(0);
+		expect(version()).toBe(before);
+	});
+
+	/**
+	 * The state the race used to leave behind: the column is there, but the version
+	 * counter never caught up, so every boot retried the migration and threw.
+	 */
+	it('heals a database whose column exists but whose version lags', () => {
+		const db = getDb();
+		// Wind the counter back without touching the schema -- exactly the inconsistency
+		// the losing container was left looking at.
+		db.pragma('user_version = 2');
+
+		expect(() => migrate(db)).not.toThrow();
+		expect(version()).toBe(MIGRATIONS.length);
+
+		// And the table is still usable afterwards, which is the point of healing it.
+		const household = makeHousehold({ name: 'After the heal', maxExtraGuests: 2 });
+		expect(getHousehold(household.id)?.maxExtraGuests).toBe(2);
+	});
+
+	it('still refuses a migration that fails for any other reason', () => {
+		const db = getDb();
+		db.pragma('user_version = 0');
+		// Version 0 replays migration 001, whose CREATE TABLE hits tables that already
+		// exist -- not a duplicate *column*, so it must surface rather than be swallowed.
+		expect(() => migrate(db)).toThrow(/already exists/i);
 	});
 });
 

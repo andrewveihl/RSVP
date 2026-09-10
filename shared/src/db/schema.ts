@@ -143,36 +143,59 @@ export const MIGRATIONS: Migration[] = [
  * Returns the number applied, which the caller logs on boot so a surprise migration
  * on a production container is visible in the logs.
  *
- * ALTER TABLE ADD COLUMN is not fully transactional in older SQLite builds: the
- * schema change can stick even when the wrapping transaction rolls back, leaving
- * user_version behind the actual schema. To handle that, "duplicate column name"
- * errors are caught and treated as already-applied so the version counter catches up.
+ * ## Two containers, one file
+ *
+ * The guest app and the admin app both open this database, and both call `migrate()`
+ * when they boot. Started together -- which is what `docker compose up` does -- they
+ * both read the same `user_version`, both decide the same migration is outstanding,
+ * and the loser fails on a column the winner has just added. That is not theoretical:
+ * migration 003 crash-looped both containers into a 502 exactly this way.
+ *
+ * So the transaction is `immediate`. That takes SQLite's write lock at `BEGIN` rather
+ * than at the first write, which turns the race into a queue: the second container
+ * blocks, then finds the version already moved on and skips. `busy_timeout` in
+ * `connection.ts` is what gives it something to block *for*.
+ *
+ * The "duplicate column name" catch below is a separate concern -- it heals a database
+ * left inconsistent by this bug *before* it was fixed, where the column exists but the
+ * version counter does not know it. New deployments never take that path.
  */
 export function migrate(db: Database): number {
-	const current = db.pragma('user_version', { simple: true }) as number;
+	const version = () => db.pragma('user_version', { simple: true }) as number;
 	let applied = 0;
 
-	for (let index = current; index < MIGRATIONS.length; index += 1) {
+	for (let index = 0; index < MIGRATIONS.length; index += 1) {
+		// Re-read each time rather than once up front: the other container may have
+		// applied several while this loop was waiting on the lock below.
+		if (version() > index) continue;
+
 		const migration = MIGRATIONS[index];
+
 		try {
-			const run = db.transaction(() => {
+			const ran = db.transaction(() => {
+				// Checked again, now holding the write lock. Between the read above and
+				// acquiring it, the other process may have finished this very migration.
+				if (version() > index) return false;
+
 				db.exec(migration.sql);
 				// The pragma cannot be parameterised, so the value is interpolated -- it is
 				// a loop counter, never anything a user supplied.
 				db.pragma(`user_version = ${index + 1}`);
-			});
-			run();
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			if (msg.includes('duplicate column name')) {
-				// The column already exists from a previously interrupted migration.
-				// Bump user_version so we don't retry on every boot.
-				db.pragma(`user_version = ${index + 1}`);
-			} else {
-				throw err;
-			}
+				return true;
+			}).immediate();
+
+			if (ran) applied += 1;
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : String(error);
+
+			// Deliberately narrow. Swallowing "already exists" wholesale would let a
+			// genuinely wrong migration look like a successful one; this matches only
+			// the specific state the pre-fix race could leave behind.
+			if (!message.includes('duplicate column name')) throw error;
+
+			db.pragma(`user_version = ${index + 1}`);
+			applied += 1;
 		}
-		applied += 1;
 	}
 
 	return applied;
