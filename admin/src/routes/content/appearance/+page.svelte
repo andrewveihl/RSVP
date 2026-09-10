@@ -8,6 +8,7 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let accent = $state(untrack(() => data.theme.accent));
+	let ink = $state(untrack(() => data.theme.ink));
 	let fonts = $state(untrack(() => data.theme.fonts));
 
 	// The order is a local array so it can be rearranged before saving; the form posts
@@ -42,6 +43,45 @@
 		{ hex: '#6E7F6B', name: 'Deep olive' },
 		{ hex: '#9C7B94', name: 'Mauve' }
 	];
+
+	/**
+	 * Text colours, all dark enough to read on the cream page.
+	 *
+	 * Deliberately not "any colour you like" as the first thing offered: text is the
+	 * one element on the site where a bad contrast choice makes the page unusable
+	 * rather than merely ugly. The custom picker is still there underneath.
+	 */
+	const inkSwatches = [
+		{ hex: '#1A1A1A', name: 'Near black' },
+		{ hex: '#2F2A24', name: 'Warm charcoal' },
+		{ hex: '#3B342B', name: 'Espresso' },
+		{ hex: '#26343F', name: 'Ink blue' },
+		{ hex: '#333B31', name: 'Forest' },
+		{ hex: '#42303A', name: 'Plum' }
+	];
+
+	/**
+	 * Roughly what the browser will compute for this colour on the cream page.
+	 *
+	 * A full WCAG contrast ratio would be more precise, but the useful signal here is
+	 * binary -- "this is too pale to read" -- and a warning that appears at the right
+	 * moment beats a number nobody wants to interpret.
+	 */
+	const inkTooPale = $derived.by(() => {
+		const hex = ink.trim().replace(/^#/, '');
+		const full =
+			hex.length === 3
+				? hex
+						.split('')
+						.map((char) => char + char)
+						.join('')
+				: hex;
+		if (!/^[0-9a-f]{6}$/i.test(full)) return false;
+
+		const value = Number.parseInt(full, 16);
+		const [r, g, b] = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+		return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55;
+	});
 
 	const fontSamples = {
 		'serif-sans': { display: 'Cormorant Garamond, Georgia, serif', body: 'Inter, sans-serif' },
@@ -87,6 +127,54 @@
 			<p class="mt-1 text-xs text-muted">
 				Used for buttons, links and the RSVP page. It is lightened automatically for
 				guests whose phone is in dark mode.
+			</p>
+		</div>
+
+		<div>
+			<span class="label">Text colour</span>
+			<div class="flex flex-wrap gap-2">
+				{#each inkSwatches as swatch (swatch.hex)}
+					<button
+						type="button"
+						class="h-10 w-10 rounded-full border-2 transition-transform hover:scale-105"
+						class:border-ink={ink.toLowerCase() === swatch.hex.toLowerCase()}
+						class:border-line={ink.toLowerCase() !== swatch.hex.toLowerCase()}
+						style="background: {swatch.hex}"
+						title={swatch.name}
+						aria-label={swatch.name}
+						onclick={() => (ink = swatch.hex)}
+					></button>
+				{/each}
+			</div>
+
+			<div class="mt-3 flex items-center gap-2">
+				<input
+					type="color"
+					class="h-11 w-14 cursor-pointer rounded-lg border border-line bg-surface p-1"
+					bind:value={ink}
+					aria-label="Custom text colour"
+				/>
+				<input name="ink" class="field font-mono" bind:value={ink} maxlength="7" />
+			</div>
+
+			<!-- Previewed on the guest site's own page colour, not the admin's, or the
+			     sample would be reassuring about the wrong background. -->
+			<p
+				class="mt-2 rounded-lg border border-line px-3 py-2 text-sm"
+				style="background:#FBFAF7; color:{ink}"
+			>
+				Andrew &amp; Madeline are getting married.
+			</p>
+
+			{#if inkTooPale}
+				<p class="mt-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+					That is very pale for body text on a cream page. It will be hard to read.
+				</p>
+			{/if}
+
+			<p class="mt-1 text-xs text-muted">
+				Headings and body text. Captions follow it. In dark mode it is lifted until it
+				reads on the dark background, keeping the colour you chose.
 			</p>
 		</div>
 

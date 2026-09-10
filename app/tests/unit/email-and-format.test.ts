@@ -12,7 +12,8 @@ import {
 import { sanitizeHtml } from '$shared/sanitize';
 import { detectImageType } from '$shared/db/images';
 import { defaultSiteContent } from '$shared/defaults';
-import type { InvitationContent } from '$shared/types';
+import { themeCss } from '$shared/theme';
+import type { InvitationContent, ThemeContent } from '$shared/types';
 import {
 	countdownTo,
 	dateLineMatches,
@@ -152,6 +153,50 @@ describe('image type detection', () => {
 		expect(detectImageType(new TextEncoder().encode('<html><body>hi</body></html>'))).toBeNull();
 		expect(detectImageType(new Uint8Array([1, 2, 3]))).toBeNull();
 		expect(detectImageType(new Uint8Array())).toBeNull();
+	});
+});
+
+describe('the site theme', () => {
+	const theme = (overrides: Partial<ThemeContent> = {}): ThemeContent => ({
+		...defaultSiteContent().theme,
+		...overrides
+	});
+
+	it('emits nothing at all for a site nobody has themed', () => {
+		// The stylesheet already ships these values; repeating them would only give the
+		// cascade something extra to argue with.
+		expect(themeCss(theme())).toBe('');
+	});
+
+	it('sets the text colour, and the caption colour with it', () => {
+		const css = themeCss(theme({ ink: '#26343F' }));
+
+		expect(css).toContain('--c-ink:38 52 63');
+		// Muted follows the ink rather than staying a stray neutral grey.
+		expect(css).toMatch(/--c-muted:\d+ \d+ \d+/);
+	});
+
+	/**
+	 * The couple picks a colour against the light page, which is what the editor shows
+	 * them. Reusing it on the dark palette would print near-black on near-black.
+	 */
+	it('lifts a dark text colour for dark mode, and leaves a light one alone', () => {
+		const dark = themeCss(theme({ ink: '#26343F' }));
+		const darkBlock = dark.slice(dark.indexOf('prefers-color-scheme:dark'));
+
+		// The dark-mode ink is a lighter version of the same colour, not the same one.
+		expect(darkBlock).toContain('--c-ink:');
+		expect(darkBlock).not.toContain('--c-ink:38 52 63');
+
+		// Something already pale enough is used as-is.
+		const pale = themeCss(theme({ ink: '#EFEAE3' }));
+		const paleBlock = pale.slice(pale.indexOf('prefers-color-scheme:dark'));
+		expect(paleBlock).toContain('--c-ink:239 234 227');
+	});
+
+	it('ignores a colour it cannot read rather than emitting nonsense', () => {
+		expect(themeCss(theme({ ink: 'rebeccapurple' }))).toBe('');
+		expect(themeCss(theme({ accent: 'not a colour' }))).toBe('');
 	});
 });
 

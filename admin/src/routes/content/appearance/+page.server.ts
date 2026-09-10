@@ -30,11 +30,15 @@ export const actions: Actions = {
 
 		const form = result.form;
 		const accent = cleanText(form.get('accent'), { max: 9 });
+		const ink = cleanText(form.get('ink'), { max: 9 });
 
 		if (!hexToTriplet(accent)) {
 			// Refused rather than silently replaced, or the couple would pick a colour,
 			// see no change, and have nothing to tell them why.
 			return fail(400, { error: `"${accent}" is not a colour. Use a hex value like #8A9A7B.` });
+		}
+		if (!hexToTriplet(ink)) {
+			return fail(400, { error: `"${ink}" is not a colour. Use a hex value like #1A1A1A.` });
 		}
 
 		const fonts = form.get('fonts')?.toString() as ThemeContent['fonts'];
@@ -51,6 +55,7 @@ export const actions: Actions = {
 
 		const theme: ThemeContent = {
 			accent,
+			ink,
 			fonts: FONT_CHOICES.includes(fonts) ? fonts : 'serif-sans',
 			hero: HERO_CHOICES.includes(hero) ? hero : 'photo',
 			// Anything the form forgot is appended, so a section can never fall out of the
@@ -65,7 +70,7 @@ export const actions: Actions = {
 		logActivity({
 			eventType: 'content_changed',
 			description: 'Changed the site appearance',
-			metadata: { accent: theme.accent, fonts: theme.fonts, hero: theme.hero },
+			metadata: { accent: theme.accent, ink: theme.ink, fonts: theme.fonts, hero: theme.hero },
 			ipAddress: event.locals.clientIp
 		});
 

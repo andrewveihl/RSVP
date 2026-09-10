@@ -71,6 +71,44 @@ describe('invitations', () => {
 		expect(await pdfPageCount(pdf)).toBe(1);
 	});
 
+	/**
+	 * The layout tests prove where things go; this proves pdf-lib will actually write
+	 * them. The two are different failures -- a `cover` image and a scrim opacity are
+	 * numbers the layout is happy to emit and the PDF writer could still refuse.
+	 */
+	it('writes a card with every option turned on', async () => {
+		// A 1x1 PNG is enough: the point is that the writer accepts the operations, not
+		// what the picture looks like.
+		const png = await qrPng('https://example.com', { size: 64 });
+
+		const pdf = await buildSingleInvitation(
+			makeHousehold({ name: 'The Whitfields' }),
+			{
+				...invitation,
+				receptionName: 'The Old Barn',
+				receptionAddress: '40 Mill Road, Somewhere',
+				lines: [
+					{ id: 'a', text: 'Black tie optional', style: 'small', slot: 'bottom' },
+					{ id: 'b', text: 'Reception to follow', style: 'display', slot: 'middle' }
+				],
+				showPhoto: true,
+				photoMode: 'background',
+				align: 'left',
+				qrPosition: 'corner',
+				scale: 1.3,
+				spacing: 1.4,
+				ink: '#26343F',
+				background: '#FBF7F0'
+			},
+			SITE,
+			{ widthIn: 5, heightIn: 7, variant: 'full', bleedIn: 0.125, showCropMarks: true },
+			{ data: png, mimetype: 'image/png' }
+		);
+
+		expect(Buffer.from(pdf.slice(0, 5)).toString()).toBe('%PDF-');
+		expect(await pdfPageCount(pdf)).toBe(1);
+	});
+
 	it('survives absurdly long names without throwing', async () => {
 		const household = makeHousehold({ name: 'The '.repeat(60) + 'Family' });
 		const pdf = await buildSingleInvitation(household, invitation, SITE, {
@@ -367,6 +405,184 @@ describe('the invitation layout, shared by the PDF and the preview', () => {
 				| undefined)?.size ?? 0;
 
 		expect(sizeOf(longNames, long.names)).toBeLessThan(sizeOf(shortNames, text().names));
+	});
+});
+
+describe('what the couple can change about the card', () => {
+	const geometry = { widthIn: 5, heightIn: 7, variant: 'full' as const };
+
+	/**
+	 * One card's text. Two calls would carry two tokens, and therefore two different
+	 * printed URLs -- which is not a difference any of these tests is about.
+	 */
+	const base = () => invitationTextFor(invitation, makeHousehold({ name: 'The Whitfields' }), SITE);
+
+	/** The card laid out with `overrides` applied to the shipped invitation. */
+	const laid = (
+		overrides: Partial<ReturnType<typeof invitationTextFor>>,
+		from: ReturnType<typeof invitationTextFor> = base()
+	) => layoutCard({ ...from, ...overrides }, geometry, previewMeasure).ops;
+
+	const texts = (ops: ReturnType<typeof laid>) =>
+		ops.filter((op): op is TextOp => op.kind === 'text').map((op) => op.text);
+
+	describe('a reception somewhere else', () => {
+		it('says nothing about a ceremony when there is only one venue', () => {
+			// The shipped card carries a ceremony label, but with a single address there
+			// is nothing to tell apart, so it must not be printed.
+			expect(texts(laid({}))).not.toContain('CEREMONY');
+			expect(texts(laid({}))).not.toContain('RECEPTION');
+		});
+
+		it('labels both once a reception address is given', () => {
+			const printed = texts(
+				laid({ receptionName: 'The Old Barn', receptionAddress: '40 Mill Road' })
+			);
+
+			expect(printed).toContain('CEREMONY');
+			expect(printed).toContain('RECEPTION');
+			expect(printed).toContain('The Old Barn');
+			// And the ceremony venue is still there, above it.
+			expect(printed.indexOf('CEREMONY')).toBeLessThan(printed.indexOf('RECEPTION'));
+		});
+
+		it('drops a label the couple cleared, keeping the venue', () => {
+			const printed = texts(
+				laid({ receptionName: 'The Old Barn', receptionLabel: '', ceremonyLabel: '' })
+			);
+
+			expect(printed).not.toContain('CEREMONY');
+			expect(printed).toContain('The Old Barn');
+		});
+	});
+
+	describe('the couple’s own lines', () => {
+		const line = (text: string, slot: 'top' | 'middle' | 'bottom') => ({
+			text,
+			style: 'body' as const,
+			slot
+		});
+
+		it('places each line in the slot it was given', () => {
+			const printed = texts(
+				laid({ lines: [line('At the end', 'bottom'), line('Near the top', 'top')] })
+			);
+
+			// Written bottom-first, but printed in slot order rather than array order.
+			expect(printed.indexOf('Near the top')).toBeLessThan(printed.indexOf('At the end'));
+			// And the top line still sits below the eyebrow it was placed under.
+			expect(printed.indexOf(invitation.eyebrow)).toBeLessThan(printed.indexOf('Near the top'));
+		});
+
+		it('ignores a line with nothing in it', () => {
+			const from = base();
+			expect(texts(laid({ lines: [line('   ', 'bottom')] }, from))).toEqual(texts(laid({}, from)));
+		});
+
+		it('wraps a long line rather than running it off the card', () => {
+			const long = 'Carriages at midnight and a bus back to the village hall for anyone staying';
+			const from = base();
+
+			const without = texts(laid({}, from));
+			const added = texts(laid({ lines: [line(long, 'bottom')] }, from)).filter(
+				(text) => !without.includes(text)
+			);
+
+			// Broken across several lines...
+			expect(added.length).toBeGreaterThan(1);
+			// ...and every word survives the break.
+			expect(added.join(' ')).toBe(long);
+		});
+	});
+
+	describe('type size and spacing', () => {
+		it('scales the type without moving the first line', () => {
+			const plain = laid({}).filter((op): op is TextOp => op.kind === 'text');
+			const big = laid({ scale: 1.4 }).filter((op): op is TextOp => op.kind === 'text');
+
+			expect(big[0].size).toBeGreaterThan(plain[0].size);
+			// The block still starts where it always did; only what fills it changes.
+			expect(big[0].y).toBeCloseTo(plain[0].y, 5);
+		});
+
+		it('opens the gaps without changing the type', () => {
+			const plain = laid({}).filter((op): op is TextOp => op.kind === 'text');
+			const airy = laid({ spacing: 1.6 }).filter((op): op is TextOp => op.kind === 'text');
+
+			expect(airy[0].size).toBeCloseTo(plain[0].size, 5);
+			// Same first baseline, but the second line has moved further down.
+			expect(airy[1].y).toBeLessThan(plain[1].y);
+		});
+
+		it('refuses a value that would make the card unreadable', () => {
+			const absurd = laid({ scale: 40 }).filter((op): op is TextOp => op.kind === 'text');
+			const capped = laid({ scale: 1.5 }).filter((op): op is TextOp => op.kind === 'text');
+
+			expect(absurd[0].size).toBeCloseTo(capped[0].size, 5);
+		});
+	});
+
+	describe('alignment', () => {
+		it('centres every line by default', () => {
+			const ops = laid({}).filter((op): op is TextOp => op.kind === 'text');
+			expect(ops.every((op) => op.align === 'center')).toBe(true);
+		});
+
+		it('ranges the wording left, and the rule with it', () => {
+			const ops = laid({ align: 'left' });
+			const body = ops.filter((op): op is TextOp => op.kind === 'text' && op.align === 'left');
+			const rule = ops.find((op) => op.kind === 'line');
+
+			expect(body.length).toBeGreaterThan(0);
+			// 5in card, 10% margin: everything starts at the same left edge.
+			expect(body.every((op) => Math.abs(op.x - 36) < 0.001)).toBe(true);
+			expect(rule && rule.kind === 'line' ? rule.x1 : -1).toBeCloseTo(36, 5);
+		});
+	});
+
+	describe('a photo behind the whole card', () => {
+		it('covers the card and lays a scrim over it before any wording', () => {
+			const ops = laid({ showPhoto: true, photoMode: 'background' });
+
+			const photoAt = ops.findIndex((op) => op.kind === 'image' && op.role === 'photo');
+			const scrimAt = ops.findIndex((op) => op.kind === 'rect' && op.fill === 'scrim');
+			const firstText = ops.findIndex((op) => op.kind === 'text');
+
+			expect(photoAt).toBeGreaterThanOrEqual(0);
+			// Order is what makes it readable: photo, then scrim, then words.
+			expect(scrimAt).toBeGreaterThan(photoAt);
+			expect(firstText).toBeGreaterThan(scrimAt);
+
+			const photo = ops[photoAt];
+			expect(photo.kind === 'image' ? photo.fit : '').toBe('cover');
+		});
+
+		it('leaves the wording where it was, unlike the band', () => {
+			const plain = laid({}).filter((op): op is TextOp => op.kind === 'text');
+			const behind = laid({ showPhoto: true, photoMode: 'background' }).filter(
+				(op): op is TextOp => op.kind === 'text'
+			);
+			const band = laid({ showPhoto: true, photoMode: 'band' }).filter(
+				(op): op is TextOp => op.kind === 'text'
+			);
+
+			// A background takes no room from the flow; a band does.
+			expect(behind[0].y).toBeCloseTo(plain[0].y, 5);
+			expect(band[0].y).toBeLessThan(plain[0].y);
+		});
+	});
+
+	it('tucks the QR into the corner when asked, and keeps the name beside it', () => {
+		const ops = laid({ qrPosition: 'corner' });
+		const qr = ops.find((op) => op.kind === 'image' && op.role === 'qr');
+		const name = ops.find((op): op is TextOp => op.kind === 'text' && op.text === 'The Whitfields');
+
+		expect(qr).toBeDefined();
+		// Right-hand side of a 360pt card, and low.
+		expect(qr && qr.kind === 'image' ? qr.x : 0).toBeGreaterThan(180);
+		expect(qr && qr.kind === 'image' ? qr.y : 999).toBeLessThan(60);
+		// The household name is ranged left against the margin rather than centred.
+		expect(name?.align).toBe('left');
 	});
 });
 

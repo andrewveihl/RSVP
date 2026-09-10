@@ -59,7 +59,28 @@ const FONT_STACK = {
 } as const;
 
 function hexOrDefault(hex: string, fallback: string): string {
-	return hexToTriplet(hex) ? hex : fallback;
+	return hexToTriplet(hex ?? '') ? hex : fallback;
+}
+
+/**
+ * Mixes one hex colour towards another, as `#rrggbb`.
+ *
+ * The same arithmetic `invitations.ts` does in pdf-lib's 0-1 space. Two
+ * implementations of one idea is a drift risk, but the alternative is a colour module
+ * that either imports pdf-lib into the browser bundle or hands back a shape neither
+ * renderer wants.
+ */
+function mix(from: string, to: string, amount: number): string {
+	const channels = (hex: string) => {
+		const triplet = hexToTriplet(hex);
+		return triplet ? triplet.split(' ').map(Number) : [0, 0, 0];
+	};
+
+	const [fr, fg, fb] = channels(from);
+	const [tr, tg, tb] = channels(to);
+	const blend = (a: number, b: number) => Math.round(a + (b - a) * amount);
+
+	return `rgb(${blend(fr, tr)} ${blend(fg, tg)} ${blend(fb, tb)})`;
 }
 
 export interface SvgOptions extends CardGeometry {
@@ -84,11 +105,15 @@ export interface SvgOptions extends CardGeometry {
 export function invitationSvg(text: InvitationText, options: SvgOptions): string {
 	const layout = layoutCard(text, options, previewMeasure);
 	const accent = hexOrDefault(text.accent, '#8A9A7B');
+	const ink = hexOrDefault(text.ink, '#1a1a1a');
+	const card = hexOrDefault(text.background, '#ffffff');
 	const fonts = FONT_STACK[text.font] ?? FONT_STACK.serif;
 
 	const colours: Record<string, string> = {
-		ink: '#1a1a1a',
-		faint: '#737373',
+		ink,
+		// Mixed towards the card rather than a fixed grey, matching what the PDF side
+		// derives, so a navy card gets a navy-grey caption in both.
+		faint: mix(ink, card, 0.42),
 		accent,
 		rule: accent,
 		crop: '#000000'
@@ -96,9 +121,9 @@ export function invitationSvg(text: InvitationText, options: SvgOptions): string
 
 	const parts: string[] = [];
 
-	// The media box, white, so bleed shows as the card's own colour.
+	// The media box in the card's own colour, so bleed reads as the paper does.
 	parts.push(
-		`<rect x="0" y="0" width="${layout.mediaWidth}" height="${layout.mediaHeight}" fill="#ffffff"/>`
+		`<rect x="0" y="0" width="${layout.mediaWidth}" height="${layout.mediaHeight}" fill="${card}"/>`
 	);
 
 	for (const op of layout.ops) {
@@ -109,7 +134,8 @@ export function invitationSvg(text: InvitationText, options: SvgOptions): string
 		if (op.kind === 'rect') {
 			parts.push(
 				`<rect x="${x(op.x)}" y="${flip(op.y + op.height)}" width="${op.width}" height="${op.height}" ` +
-					`fill="${op.fill ? '#ffffff' : 'none'}" ` +
+					`fill="${op.fill ? card : 'none'}" ` +
+					(op.opacity === undefined ? '' : `fill-opacity="${op.opacity}" `) +
 					`stroke="${op.stroke ? colours[op.stroke] : 'none'}" stroke-width="${op.strokeWidth ?? 0}"/>`
 			);
 		} else if (op.kind === 'line') {
@@ -119,7 +145,7 @@ export function invitationSvg(text: InvitationText, options: SvgOptions): string
 			);
 		} else if (op.kind === 'text') {
 			parts.push(
-				`<text x="${x(op.x)}" y="${flip(op.y)}" text-anchor="middle" ` +
+				`<text x="${x(op.x)}" y="${flip(op.y)}" text-anchor="${op.align === 'left' ? 'start' : 'middle'}" ` +
 					`font-family="${fonts[op.face]}" font-size="${op.size}" fill="${colours[op.colour]}">` +
 					`${escapeHtml(op.text)}</text>`
 			);
@@ -128,10 +154,12 @@ export function invitationSvg(text: InvitationText, options: SvgOptions): string
 			const href = op.role === 'photo' ? options.photoUrl : options.qrDataUrl;
 
 			if (href) {
-				// `xMidYMid meet` is contain-and-centre, which is exactly what the PDF
-				// side computes for the same box -- so the two agree without either
-				// needing to be told the image's proportions.
-				const aspect = op.fit === 'contain' ? 'xMidYMid meet' : 'none';
+				// `meet` is contain and `slice` is cover, both centred -- exactly what the
+				// PDF side computes for the same box, so the two agree without either
+				// being told the image's proportions. `slice` also clips to the element's
+				// own bounds, which is the crop the PDF has to build a form XObject for.
+				const aspect =
+					op.fit === 'contain' ? 'xMidYMid meet' : op.fit === 'cover' ? 'xMidYMid slice' : 'none';
 				parts.push(
 					`<image x="${x(op.x)}" y="${y}" width="${op.width}" height="${op.height}" ` +
 						`href="${escapeHtml(href)}" preserveAspectRatio="${aspect}"/>`

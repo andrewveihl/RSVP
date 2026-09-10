@@ -215,6 +215,16 @@ export interface FaqContent {
 	items: FaqItem[];
 }
 
+/** One line of the couple's own wording, placed among the fixed blocks. */
+export interface InvitationLine {
+	id: string;
+	text: string;
+	/** How prominently it is set: a heading, ordinary text, or a small note. */
+	style: 'display' | 'body' | 'small';
+	/** Which of the three slots on the card it sits in. */
+	slot: 'top' | 'middle' | 'bottom';
+}
+
 export interface InvitationContent {
 	/** Small caps line above the names. */
 	eyebrow: string;
@@ -224,8 +234,23 @@ export interface InvitationContent {
 	inviteLine: string;
 	dateLine: string;
 	timeLine: string;
+	/**
+	 * Where the ceremony is.
+	 *
+	 * Named `venue*` rather than `ceremony*` because these fields predate the split and
+	 * renaming them would orphan every stored invitation. When there is no reception
+	 * address this is simply "the venue", and no label is printed above it.
+	 */
 	venueName: string;
 	venueAddress: string;
+	/** Printed above the ceremony venue, and only when a reception is also set. */
+	ceremonyLabel: string;
+	/** A second location. Empty means the reception is at the ceremony venue. */
+	receptionName: string;
+	receptionAddress: string;
+	receptionLabel: string;
+	/** The couple's own lines, in the order they were added within each slot. */
+	lines: InvitationLine[];
 	/** Caption printed under the QR code. */
 	qrCaption: string;
 	/**
@@ -241,16 +266,46 @@ export interface InvitationContent {
 	showQr: boolean;
 	showPhoto: boolean;
 	showBorder: boolean;
+	/**
+	 * A band across the head of the card, or the whole card behind the wording.
+	 *
+	 * The background mode lays a scrim over the photo before any text is drawn --
+	 * without it the wording is legible or not depending on which part of the photo
+	 * happens to sit behind it, which is not something the couple can judge from a
+	 * thumbnail.
+	 */
+	photoMode: 'band' | 'background';
+	/** Whether the wording is centred or ranged left. */
+	align: 'center' | 'left';
+	/** The QR block at the foot, or tucked into the bottom-right corner. */
+	qrPosition: 'foot' | 'corner';
+	/** Multiplier on every type size. 1 is the shipped card. */
+	scale: number;
+	/** Multiplier on the gaps between blocks. 1 is the shipped card. */
+	spacing: number;
 	/** 'serif' or 'sans' -- which of the two standard PDF families to set it in. */
 	font: 'serif' | 'sans';
 	/** Hex colour for the rule, the border and the eyebrow. */
 	accent: string;
+	/** Hex colour for the printed text. */
+	ink: string;
+	/** Hex colour for the card itself. */
+	background: string;
 }
 
 /** Look-and-feel choices that apply across the whole guest site. */
 export interface ThemeContent {
 	/** Hex accent, used for buttons, links and focus rings. */
 	accent: string;
+	/**
+	 * Hex colour for body and heading text.
+	 *
+	 * Chosen against the light palette, because that is what the editor previews. The
+	 * dark palette cannot reuse it -- a near-black chosen for a cream page is invisible
+	 * on a dark one -- so `themeCss` lifts it there, keeping the hue and changing only
+	 * how light it is.
+	 */
+	ink: string;
 	/** Which pairing of display and body faces to set the site in. */
 	fonts: 'serif-sans' | 'sans-sans' | 'serif-serif';
 	/** How the home page hero treats its photo. */

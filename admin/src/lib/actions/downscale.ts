@@ -10,6 +10,12 @@
  * discarded was never going to be seen. Re-encoding also strips EXIF, which quietly
  * removes the GPS coordinates of wherever the photo was taken.
  *
+ * It shrinks to a *byte budget* rather than to a pixel size and hoping. Which one it
+ * is matters: an upload crosses our own limit, adapter-node's `BODY_SIZE_LIMIT` and
+ * whatever the reverse proxy allows, and only the first of those produces an error
+ * message anybody can read. Guaranteeing the size here means an upload does not depend
+ * on how the deployment in front of it happens to be configured.
+ *
  * Applied as an action on a `<input type="file">`, so every upload in the content
  * editor gets the same treatment from one implementation:
  *
@@ -20,52 +26,82 @@ import type { Action } from 'svelte/action';
 export interface DownscaleOptions {
 	/** Longest edge, in pixels, after scaling. */
 	maxEdge?: number;
-	/** JPEG quality, 0-1. 0.85 is the usual point of diminishing returns. */
+	/** JPEG quality to try first. 0.85 is the usual point of diminishing returns. */
 	quality?: number;
-	/** Files at or under this size are passed through untouched. */
-	skipUnderBytes?: number;
+	/**
+	 * The size to get under, in bytes.
+	 *
+	 * A *budget*, not a threshold to skip below -- which is the distinction this got
+	 * wrong before. It used to pass anything under 600KB through untouched, while the
+	 * server refused anything over 512KB, so every photo that landed between the two
+	 * was deliberately left alone and then rejected with a bare 413. A photo already
+	 * under `maxEdge` was passed through at any size for the same reason, so a 3MB
+	 * 1800px PNG failed too. Both of those are why some photos uploaded and others
+	 * did not, with nothing on screen to say why.
+	 */
+	maxBytes?: number;
 }
 
 const DEFAULTS: Required<DownscaleOptions> = {
 	maxEdge: 2000,
 	quality: 0.85,
-	skipUnderBytes: 600 * 1024
+	// Comfortably inside every limit in the chain -- ours, adapter-node's, and the
+	// 1MB a reverse proxy is likely to impose by default -- so an upload does not
+	// depend on how the deployment happens to be configured.
+	maxBytes: 900 * 1024
 };
 
+/** Encodes the canvas and hands back the bytes, or null if the browser refuses. */
+function encode(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
+	return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+}
+
 async function shrink(file: File, options: Required<DownscaleOptions>): Promise<File> {
-	// Small files, and formats a canvas would damage rather than help, are left alone.
-	if (file.size <= options.skipUnderBytes) return file;
+	// A canvas cannot help these: it would flatten a GIF's animation, and anything
+	// that is not an image has no business being re-encoded as one.
 	if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
 
-	const bitmap = await createImageBitmap(file);
-	const scale = Math.min(1, options.maxEdge / Math.max(bitmap.width, bitmap.height));
+	// Already small enough, and no re-encode can improve on that.
+	if (file.size <= options.maxBytes) return file;
 
-	// Already small enough in pixels: re-encoding would only lose quality.
-	if (scale === 1) {
-		bitmap.close();
-		return file;
-	}
+	const bitmap = await createImageBitmap(file);
 
 	const canvas = document.createElement('canvas');
-	canvas.width = Math.round(bitmap.width * scale);
-	canvas.height = Math.round(bitmap.height * scale);
-
 	const context = canvas.getContext('2d');
 	if (!context) {
 		bitmap.close();
 		return file;
 	}
 
-	context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+	let scale = Math.min(1, options.maxEdge / Math.max(bitmap.width, bitmap.height));
+	let best: Blob | null = null;
+
+	// Quality first, then dimensions. Dropping quality is nearly free at these sizes;
+	// dropping pixels is what actually costs detail, so it is the later resort. Six
+	// passes takes the worst case from a 50MP phone photo to well under the budget.
+	for (let attempt = 0; attempt < 6; attempt += 1) {
+		canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+		canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+		context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+		const quality = Math.max(0.5, options.quality - attempt * 0.1);
+		const blob = await encode(canvas, quality);
+		if (!blob) break;
+
+		best = blob;
+		if (blob.size <= options.maxBytes) break;
+
+		// Still too big: give up a fifth of the width and go again.
+		scale *= 0.8;
+	}
+
 	bitmap.close();
 
-	const blob = await new Promise<Blob | null>((resolve) =>
-		canvas.toBlob(resolve, 'image/jpeg', options.quality)
-	);
-	if (!blob || blob.size >= file.size) return file;
+	// If the original was somehow smaller than anything we produced, keep it.
+	if (!best || best.size >= file.size) return file;
 
 	const name = file.name.replace(/\.[^.]+$/, '') || 'photo';
-	return new File([blob], `${name}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+	return new File([best], `${name}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
 }
 
 export const downscale: Action<HTMLInputElement, DownscaleOptions | undefined> = (

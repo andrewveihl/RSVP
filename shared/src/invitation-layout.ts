@@ -22,6 +22,13 @@ export function inches(value: number): number {
 	return value * POINTS_PER_INCH;
 }
 
+/** One of the couple's own lines, as the layout receives it. */
+export interface InvitationExtraLine {
+	text: string;
+	style: 'display' | 'body' | 'small';
+	slot: 'top' | 'middle' | 'bottom';
+}
+
 export interface InvitationText {
 	eyebrow: string;
 	names: string;
@@ -30,6 +37,11 @@ export interface InvitationText {
 	timeLine: string;
 	venueName: string;
 	venueAddress: string;
+	ceremonyLabel: string;
+	receptionName: string;
+	receptionAddress: string;
+	receptionLabel: string;
+	lines: InvitationExtraLine[];
 	qrCaption: string;
 	householdName: string;
 	url: string;
@@ -44,8 +56,16 @@ export interface InvitationText {
 	 */
 	showPhoto: boolean;
 	showBorder: boolean;
+	photoMode: 'band' | 'background';
+	align: 'center' | 'left';
+	qrPosition: 'foot' | 'corner';
+	/** Multiplier on every type size, and on the gaps between blocks. 1 is shipped. */
+	scale: number;
+	spacing: number;
 	font: 'serif' | 'sans';
 	accent: string;
+	ink: string;
+	background: string;
 }
 
 export interface CardGeometry {
@@ -63,8 +83,15 @@ export type FaceName = 'display' | 'displayBold' | 'body';
 export interface TextOp {
 	kind: 'text';
 	text: string;
-	/** Centre point, in points from the left of the trim box. */
+	/**
+	 * The anchor, in points from the left of the trim box.
+	 *
+	 * What it anchors depends on `align`: the centre of the line when centred, its
+	 * left edge when ranged left. Both renderers have to agree about that, which is
+	 * why it travels with the op rather than being inferred from the card.
+	 */
 	x: number;
+	align: 'center' | 'left';
 	/** Baseline, in points from the *bottom* of the trim box -- PDF's origin. */
 	y: number;
 	size: number;
@@ -88,9 +115,16 @@ export interface RectOp {
 	y: number;
 	width: number;
 	height: number;
-	fill?: 'white';
+	/**
+	 * `card` is the couple's chosen background; `scrim` is that same colour at partial
+	 * opacity, laid over a full-bleed photo so the wording stays readable whatever the
+	 * picture happens to be doing underneath.
+	 */
+	fill?: 'card' | 'scrim';
 	stroke?: 'rule' | 'accent';
 	strokeWidth?: number;
+	/** 0-1, for the scrim. Absent means fully opaque. */
+	opacity?: number;
 }
 
 export interface ImageOp {
@@ -105,7 +139,7 @@ export interface ImageOp {
 	 * inside the box and centred -- both renderers do that identically, which is why
 	 * the layout does not need to know the image's proportions.
 	 */
-	fit: 'stretch' | 'contain';
+	fit: 'stretch' | 'contain' | 'cover';
 	x: number;
 	y: number;
 	width: number;
@@ -129,6 +163,12 @@ export interface Layout {
 
 /** Measures a string; supplied by whichever renderer is driving the layout. */
 export type Measure = (text: string, face: FaceName, size: number) => number;
+
+/** Keeps a value the couple typed inside the range the layout can actually honour. */
+function clamp(value: number, min: number, max: number): number {
+	if (!Number.isFinite(value)) return 1;
+	return Math.min(max, Math.max(min, value));
+}
 
 /** Shrinks the type until the line fits, so a long name never runs off the card. */
 function fit(
@@ -206,11 +246,63 @@ function cropMarks(layout: Omit<Layout, 'ops'>): LineOp[] {
 	return marks;
 }
 
+/**
+ * One measured line of the card's wording.
+ *
+ * The body of the invitation is built as a list of these before a single coordinate
+ * is decided. That indirection is what makes the card adjustable at all: the couple's
+ * own lines, a second venue, a type scale and a left-ranged setting are all just
+ * different lists, laid out by the same code, rather than four special cases threaded
+ * through one long procedure.
+ */
+interface FlowLine {
+	text: string;
+	face: FaceName;
+	size: number;
+	colour: 'ink' | 'faint' | 'accent';
+	/** Space above this line, already scaled. */
+	gapBefore: number;
+	/** A rule rather than text; `text` is ignored. */
+	rule?: boolean;
+}
+
 /** The full invitation: everything, with the QR block anchored to the foot. */
 function fullCard(text: InvitationText, width: number, height: number, measure: Measure): DrawOp[] {
 	const margin = width * 0.1;
 	const inner = width - margin * 2;
-	const ops: DrawOp[] = [{ kind: 'rect', x: 0, y: 0, width, height, fill: 'white' }];
+
+	// Clamped rather than trusted: these arrive from a form, and a scale of 40 would
+	// not produce a bad card so much as an unreadable one.
+	const scale = clamp(text.scale, 0.7, 1.5);
+	const spacing = clamp(text.spacing, 0.6, 1.8);
+
+	/** A type size at the couple's chosen scale, shrunk again if the line is too wide. */
+	const sized = (value: string, face: FaceName, preferred: number, min = 5) =>
+		fit(value, face, inner, preferred * scale, measure, min);
+
+	/** A vertical gap at the couple's chosen rhythm. */
+	const gap = (fraction: number) => height * fraction * spacing;
+
+	const ops: DrawOp[] = [{ kind: 'rect', x: 0, y: 0, width, height, fill: 'card' }];
+
+	// --- a photo behind everything ------------------------------------------
+	// Drawn before the border and the wording, and covered by a scrim, because a
+	// photograph is not a background until something has taken the contrast out of it.
+	const asBackground = text.showPhoto && text.photoMode === 'background';
+	if (asBackground) {
+		ops.push({
+			kind: 'image',
+			role: 'photo',
+			// Cover, not contain: a background with white bars down the side is not a
+			// background. The renderers crop the overflow.
+			fit: 'cover',
+			x: 0,
+			y: 0,
+			width,
+			height
+		});
+		ops.push({ kind: 'rect', x: 0, y: 0, width, height, fill: 'scrim', opacity: 0.72 });
+	}
 
 	if (text.showBorder) {
 		// Set in from the trim, so a slightly off-centre cut does not slice through it.
@@ -228,19 +320,63 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	// --- the foot -----------------------------------------------------------
 	// Anchored to the bottom rather than flowing after the text, so every card in a
 	// batch has its QR in the same place. Laid out first because the wording above has
-	// to know where it stops, and so does the photo.
+	// to know where it stops, and so does a photo band.
 	//
-	// A photo makes the QR block a little smaller and sets it lower. That is where most
-	// of the room for the photo comes from -- the card is otherwise full.
-	const withPhoto = text.showPhoto;
+	// A band photo makes the QR block a little smaller and sets it lower. That is where
+	// most of the room for the band comes from -- the card is otherwise full.
+	const withBand = text.showPhoto && text.photoMode === 'band';
+	const inCorner = text.qrPosition === 'corner';
 	const footOps: DrawOp[] = [];
 	/** The highest point the foot occupies; nothing above it may descend past this. */
 	let footTop: number;
 
-	if (text.showQr) {
-		const side = Math.min(width * (withPhoto ? 0.24 : 0.32), height * (withPhoto ? 0.16 : 0.22));
-		const qrY = margin + height * (withPhoto ? 0.05 : 0.075);
-		const nameSize = fit(text.householdName, 'display', inner, withPhoto ? 10 : 11, measure);
+	if (text.showQr && inCorner) {
+		// Tucked into the bottom-right, with the household name beside it rather than
+		// above. Smaller, because the corner is not where anyone is looking first.
+		const side = Math.min(width * 0.2, height * 0.13);
+		const qrX = width - margin - side;
+		const qrY = margin * 0.9;
+		const nameSize = fit(text.householdName, 'display', inner - side - 12, 10 * scale, measure);
+
+		footOps.push({
+			kind: 'image',
+			role: 'qr',
+			fit: 'stretch',
+			x: qrX,
+			y: qrY,
+			width: side,
+			height: side
+		});
+
+		footOps.push({
+			kind: 'text',
+			text: text.householdName,
+			x: margin,
+			align: 'left',
+			y: qrY + side / 2,
+			size: nameSize,
+			face: 'display',
+			colour: 'ink'
+		});
+
+		if (text.qrCaption) {
+			footOps.push({
+				kind: 'text',
+				text: text.qrCaption,
+				x: margin,
+				align: 'left',
+				y: qrY + side / 2 - nameSize - 4,
+				size: 7.5 * scale,
+				face: 'body',
+				colour: 'accent'
+			});
+		}
+
+		footTop = qrY + side;
+	} else if (text.showQr) {
+		const side = Math.min(width * (withBand ? 0.24 : 0.32), height * (withBand ? 0.16 : 0.22));
+		const qrY = margin + height * (withBand ? 0.05 : 0.075);
+		const nameSize = fit(text.householdName, 'display', inner, (withBand ? 10 : 11) * scale, measure);
 		const nameY = qrY + side + 14;
 
 		footOps.push({
@@ -257,6 +393,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 			kind: 'text',
 			text: text.householdName,
 			x: width / 2,
+			align: 'center',
 			y: nameY,
 			size: nameSize,
 			face: 'display',
@@ -268,8 +405,9 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 				kind: 'text',
 				text: text.qrCaption,
 				x: width / 2,
+				align: 'center',
 				y: qrY - 14,
-				size: 8,
+				size: 8 * scale,
 				face: 'body',
 				colour: 'accent'
 			});
@@ -280,8 +418,9 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 				kind: 'text',
 				text: text.url,
 				x: width / 2,
+				align: 'center',
 				y: qrY - 26,
-				size: fit(text.url, 'body', inner, 7, measure, 4.5),
+				size: fit(text.url, 'body', inner, 7 * scale, measure, 4.5),
 				face: 'body',
 				colour: 'faint'
 			});
@@ -289,13 +428,14 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 
 		footTop = nameY + nameSize;
 	} else {
-		const nameSize = fit(text.householdName, 'display', inner, 12, measure);
+		const nameSize = fit(text.householdName, 'display', inner, 12 * scale, measure);
 		const nameY = margin + height * 0.1;
 
 		footOps.push({
 			kind: 'text',
 			text: text.householdName,
 			x: width / 2,
+			align: 'center',
 			y: nameY,
 			size: nameSize,
 			face: 'display',
@@ -306,141 +446,200 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	}
 
 	// --- the wording ----------------------------------------------------------
-	// Built against a cursor starting at zero and running downwards, so the block's
-	// height is known before it is placed. Without a photo it is then translated to
-	// exactly where it has always sat, and the card is unchanged.
-	const flow: (TextOp | LineOp)[] = [];
-	let y = 0;
+	// Collected as a list first, then measured, then placed. Nothing here knows where
+	// on the card it will end up.
+	const flow: FlowLine[] = [];
+
+	/** The couple's own lines for one slot, in the order they wrote them. */
+	const extras = (slot: 'top' | 'middle' | 'bottom') => {
+		for (const line of text.lines) {
+			if (line.slot !== slot || !line.text.trim()) continue;
+
+			const preferred = line.style === 'display' ? 13 : line.style === 'small' ? 8 : 10;
+			const face: FaceName = line.style === 'display' ? 'display' : 'body';
+
+			for (const part of wrap(line.text, face, preferred * scale, inner, measure)) {
+				flow.push({
+					text: part,
+					face,
+					size: preferred * scale,
+					colour: line.style === 'small' ? 'faint' : 'ink',
+					gapBefore: gap(line.style === 'display' ? 0.04 : 0.028)
+				});
+			}
+		}
+	};
 
 	if (text.eyebrow) {
 		flow.push({
-			kind: 'text',
 			text: text.eyebrow,
-			x: width / 2,
-			y,
-			size: fit(text.eyebrow, 'body', inner, 8, measure),
 			face: 'body',
-			colour: 'accent'
+			size: sized(text.eyebrow, 'body', 8),
+			colour: 'accent',
+			gapBefore: 0
 		});
 	}
 
-	y -= height * 0.075;
+	extras('top');
+
 	flow.push({
-		kind: 'text',
 		text: text.names,
-		x: width / 2,
-		y,
-		size: fit(text.names, 'display', inner, height * 0.055, measure),
 		face: 'display',
-		colour: 'ink'
+		size: sized(text.names, 'display', height * 0.055),
+		colour: 'ink',
+		gapBefore: gap(0.075)
 	});
 
 	if (text.inviteLine) {
-		y -= height * 0.042;
 		flow.push({
-			kind: 'text',
 			text: text.inviteLine,
-			x: width / 2,
-			y,
-			size: fit(text.inviteLine, 'body', inner, 10, measure),
 			face: 'body',
-			colour: 'faint'
+			size: sized(text.inviteLine, 'body', 10),
+			colour: 'faint',
+			gapBefore: gap(0.042)
 		});
 	}
 
-	y -= height * 0.05;
-	flow.push({
-		kind: 'line',
-		x1: width / 2 - inner * 0.18,
-		y1: y,
-		x2: width / 2 + inner * 0.18,
-		y2: y,
-		width: 0.75,
-		colour: 'accent'
-	});
+	flow.push({ text: '', face: 'body', size: 0, colour: 'accent', gapBefore: gap(0.05), rule: true });
 
 	if (text.dateLine) {
-		y -= height * 0.05;
 		flow.push({
-			kind: 'text',
 			text: text.dateLine,
-			x: width / 2,
-			y,
-			size: fit(text.dateLine, 'displayBold', inner, 15, measure),
 			face: 'displayBold',
-			colour: 'ink'
+			size: sized(text.dateLine, 'displayBold', 15),
+			colour: 'ink',
+			gapBefore: gap(0.05)
 		});
 	}
 
 	if (text.timeLine) {
-		y -= height * 0.032;
 		flow.push({
-			kind: 'text',
 			text: text.timeLine,
-			x: width / 2,
-			y,
-			size: fit(text.timeLine, 'body', inner, 10, measure),
 			face: 'body',
-			colour: 'faint'
+			size: sized(text.timeLine, 'body', 10),
+			colour: 'faint',
+			gapBefore: gap(0.032)
 		});
 	}
 
-	if (text.venueName) {
-		y -= height * 0.04;
-		flow.push({
-			kind: 'text',
-			text: text.venueName,
-			x: width / 2,
-			y,
-			size: fit(text.venueName, 'display', inner, 13, measure),
-			face: 'display',
-			colour: 'ink'
-		});
-	}
+	extras('middle');
 
-	if (text.venueAddress) {
-		y -= height * 0.028;
-		for (const line of wrap(text.venueAddress, 'body', 9, inner, measure)) {
-			flow.push({ kind: 'text', text: line, x: width / 2, y, size: 9, face: 'body', colour: 'faint' });
-			y -= height * 0.022;
+	// --- the venues -----------------------------------------------------------
+	// One block when the reception is at the ceremony venue, two when it is not. The
+	// labels only appear in the two-venue case: a card that says CEREMONY above its
+	// only address is answering a question nobody asked.
+	const hasReception = Boolean(text.receptionName.trim() || text.receptionAddress.trim());
+
+	const venueBlock = (label: string, name: string, address: string, first: boolean) => {
+		if (!name.trim() && !address.trim()) return;
+
+		if (hasReception && label.trim()) {
+			flow.push({
+				text: label,
+				face: 'body',
+				size: sized(label, 'body', 7.5),
+				colour: 'accent',
+				gapBefore: gap(first ? 0.04 : 0.038)
+			});
 		}
+
+		if (name.trim()) {
+			flow.push({
+				text: name,
+				face: 'display',
+				size: sized(name, 'display', 13),
+				colour: 'ink',
+				gapBefore: gap(hasReception && label.trim() ? 0.026 : first ? 0.04 : 0.038)
+			});
+		}
+
+		if (address.trim()) {
+			const size = 9 * scale;
+			wrap(address, 'body', size, inner, measure).forEach((part, index) => {
+				flow.push({
+					text: part,
+					face: 'body',
+					size,
+					colour: 'faint',
+					gapBefore: index === 0 ? gap(0.028) : gap(0.022)
+				});
+			});
+		}
+	};
+
+	venueBlock(text.ceremonyLabel, text.venueName, text.venueAddress, true);
+	if (hasReception) {
+		venueBlock(text.receptionLabel, text.receptionName, text.receptionAddress, false);
 	}
 
-	// --- placing the block, and the photo above it ----------------------------
-	const blockHeight = -y;
-	/** Where the block's first baseline sits when there is no photo above it. */
+	extras('bottom');
+
+	// --- placing the block, and a photo band above it ---------------------------
+	// The gaps, plus the depth of the last line -- which has a gap above it but
+	// nothing below, and would otherwise be measured as taking no room at all.
+	const blockHeight =
+		flow.reduce((total, line) => total + line.gapBefore, 0) + (flow.at(-1)?.size ?? 0);
+	/** Where the block's first baseline sits when there is no photo band above it. */
 	let top = height - margin - 18;
 
-	if (withPhoto) {
+	if (withBand) {
 		const innerTop = height - margin * 0.9;
-		const gap = height * 0.03;
+		const bandGap = height * 0.03;
 		// Whatever is left once the wording and the foot have taken their room. The
-		// photo is sized to fit rather than given a fixed height, because how much of
+		// band is sized to fit rather than given a fixed height, because how much of
 		// the card the wording uses depends entirely on how much of it was written.
-		const room = innerTop - footTop - blockHeight - gap * 2;
-		const photoHeight = Math.min(room, height * 0.3);
+		const room = innerTop - footTop - blockHeight - bandGap * 2;
+		const bandHeight = Math.min(room, height * 0.3);
 
 		// Below a tenth of the card a photo is a smear rather than a picture, so a card
 		// with no room for one simply does not get one -- printing it over the wording
 		// would be worse than leaving it out.
-		if (photoHeight >= height * 0.1) {
+		if (bandHeight >= height * 0.1) {
 			ops.push({
 				kind: 'image',
 				role: 'photo',
 				fit: 'contain',
 				x: margin,
-				y: innerTop - photoHeight,
+				y: innerTop - bandHeight,
 				width: inner,
-				height: photoHeight
+				height: bandHeight
 			});
-			top = innerTop - photoHeight - gap;
+			top = innerTop - bandHeight - bandGap;
 		}
 	}
 
-	for (const op of flow) {
-		ops.push(
-			op.kind === 'line' ? { ...op, y1: op.y1 + top, y2: op.y2 + top } : { ...op, y: op.y + top }
-		);
+	const anchor = text.align === 'left' ? margin : width / 2;
+	let y = top;
+
+	for (const line of flow) {
+		y -= line.gapBefore;
+
+		if (line.rule) {
+			// The rule follows the alignment: centred it is a short mark under the
+			// names, ranged left it starts at the margin like everything else.
+			const length = inner * 0.36;
+			ops.push({
+				kind: 'line',
+				x1: text.align === 'left' ? margin : width / 2 - length / 2,
+				y1: y,
+				x2: text.align === 'left' ? margin + length : width / 2 + length / 2,
+				y2: y,
+				width: 0.75,
+				colour: 'accent'
+			});
+			continue;
+		}
+
+		ops.push({
+			kind: 'text',
+			text: line.text,
+			x: anchor,
+			align: text.align,
+			y,
+			size: line.size,
+			face: line.face,
+			colour: line.colour
+		});
 	}
 
 	ops.push(...footOps);
@@ -452,7 +651,7 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 function insertCard(text: InvitationText, width: number, height: number, measure: Measure): DrawOp[] {
 	const margin = width * 0.1;
 	const inner = width - margin * 2;
-	const ops: DrawOp[] = [{ kind: 'rect', x: 0, y: 0, width, height, fill: 'white' }];
+	const ops: DrawOp[] = [{ kind: 'rect', x: 0, y: 0, width, height, fill: 'card' }];
 
 	if (text.showBorder) {
 		ops.push({
@@ -470,6 +669,7 @@ function insertCard(text: InvitationText, width: number, height: number, measure
 		kind: 'text',
 		text: text.householdName,
 		x: width / 2,
+		align: 'center',
 		y: height - margin - 14,
 		size: fit(text.householdName, 'display', inner, 14, measure),
 		face: 'display',
@@ -496,6 +696,7 @@ function insertCard(text: InvitationText, width: number, height: number, measure
 			kind: 'text',
 			text: text.qrCaption,
 			x: width / 2,
+			align: 'center',
 			y: qrY - 16,
 			size: 8.5,
 			face: 'body',
@@ -508,6 +709,7 @@ function insertCard(text: InvitationText, width: number, height: number, measure
 			kind: 'text',
 			text: text.url,
 			x: width / 2,
+			align: 'center',
 			y: qrY - 28,
 			size: fit(text.url, 'body', inner, 7, measure, 4.5),
 			face: 'body',
@@ -520,6 +722,7 @@ function insertCard(text: InvitationText, width: number, height: number, measure
 			kind: 'text',
 			text: text.dateLine,
 			x: width / 2,
+			align: 'center',
 			y: margin * 0.7,
 			size: fit(text.dateLine, 'body', inner, 8, measure),
 			face: 'body',

@@ -6,6 +6,7 @@
 	import { CSRF_FIELD } from '$shared/csrf-fields';
 	import { rsvpUrl } from '$shared/rsvp-url';
 	import type { InvitationText } from '$shared/invitation-layout';
+	import type { InvitationLine } from '$shared/types';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -14,6 +15,31 @@
 	// Seeded once from the stored invitation; from here the form owns it, and the
 	// preview re-renders from these values on every keystroke.
 	let design = $state(untrack(() => structuredClone(data.invitation)));
+
+	// The couple's own lines, owned by this form once seeded -- the same working-copy
+	// pattern the other content editors use for their repeated rows.
+	let lines = $state<InvitationLine[]>(untrack(() => structuredClone(data.invitation.lines ?? [])));
+
+	/**
+	 * Whether a second location has been given.
+	 *
+	 * Drives the labels as well as the layout: with one venue the field is just "Venue",
+	 * and the two label fields have nothing to label.
+	 */
+	const hasReception = $derived(
+		Boolean(design.receptionName.trim() || design.receptionAddress.trim())
+	);
+
+	function addLine() {
+		lines = [
+			...lines,
+			{ id: `line-new-${lines.length}-${Date.now()}`, text: '', style: 'body', slot: 'bottom' }
+		];
+	}
+
+	function removeLine(index: number) {
+		lines = lines.filter((_, position) => position !== index);
+	}
 
 	// --- the card ----------------------------------------------------------------
 	let preset = $state('5x7');
@@ -53,6 +79,8 @@
 
 	const previewText = $derived<InvitationText>({
 		...design,
+		// The live rows, not the saved ones, so a line reads onto the card as it is typed.
+		lines,
 		householdName: sample?.name ?? 'The Whitfield Family',
 		url: sample ? rsvpUrl(data.siteUrl, sample.token) : `${data.siteUrl}/rsvp/…`,
 		// Only reserve the space when there is a saved photo to put in it. Ticking the
@@ -117,17 +145,41 @@
 				</div>
 
 				<div>
-					<label class="label" for="venueName">Venue</label>
+					<label class="label" for="qrCaption">Caption under the QR</label>
+					<input id="qrCaption" name="qrCaption" class="field" bind:value={design.qrCaption} />
+				</div>
+			</div>
+
+			<h2 class="mt-6 text-sm font-semibold text-ink">Where</h2>
+			<p class="mt-1 text-xs text-muted">
+				Leave the reception blank if it is at the same place. Fill it in and the card
+				labels both, so nobody turns up at the wrong one.
+			</p>
+
+			<div class="mt-3 grid gap-3 sm:grid-cols-2">
+				<div>
+					<label class="label" for="venueName">
+						{hasReception ? 'Ceremony venue' : 'Venue'}
+					</label>
 					<input id="venueName" name="venueName" class="field" bind:value={design.venueName} />
 				</div>
 
 				<div>
-					<label class="label" for="qrCaption">Caption under the QR</label>
-					<input id="qrCaption" name="qrCaption" class="field" bind:value={design.qrCaption} />
+					<label class="label" for="ceremonyLabel">Ceremony label</label>
+					<input
+						id="ceremonyLabel"
+						name="ceremonyLabel"
+						class="field"
+						placeholder="CEREMONY"
+						disabled={!hasReception}
+						bind:value={design.ceremonyLabel}
+					/>
 				</div>
 
 				<div class="sm:col-span-2">
-					<label class="label" for="venueAddress">Venue address</label>
+					<label class="label" for="venueAddress">
+						{hasReception ? 'Ceremony address' : 'Venue address'}
+					</label>
 					<textarea
 						id="venueAddress"
 						name="venueAddress"
@@ -136,7 +188,97 @@
 						bind:value={design.venueAddress}
 					></textarea>
 				</div>
+
+				<div>
+					<label class="label" for="receptionName">Reception venue</label>
+					<input
+						id="receptionName"
+						name="receptionName"
+						class="field"
+						placeholder="Same as the ceremony"
+						bind:value={design.receptionName}
+					/>
+				</div>
+
+				<div>
+					<label class="label" for="receptionLabel">Reception label</label>
+					<input
+						id="receptionLabel"
+						name="receptionLabel"
+						class="field"
+						placeholder="RECEPTION"
+						disabled={!hasReception}
+						bind:value={design.receptionLabel}
+					/>
+				</div>
+
+				<div class="sm:col-span-2">
+					<label class="label" for="receptionAddress">Reception address</label>
+					<textarea
+						id="receptionAddress"
+						name="receptionAddress"
+						class="field"
+						rows="2"
+						bind:value={design.receptionAddress}
+					></textarea>
+				</div>
 			</div>
+
+			<div class="mt-6 flex flex-wrap items-center justify-between gap-2">
+				<h2 class="text-sm font-semibold text-ink">Your own lines</h2>
+				<button type="button" class="btn-secondary btn-sm" onclick={addLine}>Add a line</button>
+			</div>
+			<p class="mt-1 text-xs text-muted">
+				Anything else the card should say -- a dress code, "carriages at midnight", a
+				note about children. Each one picks where it sits and how it is set.
+			</p>
+			<input type="hidden" name="line_count" value={lines.length} />
+
+			{#if lines.length === 0}
+				<p class="mt-3 text-sm text-muted">None yet.</p>
+			{/if}
+
+			<ul class="mt-3 space-y-2">
+				{#each lines as line, index (line.id)}
+					<li class="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-[1fr_8rem_8rem_auto]">
+						<input type="hidden" name="line_{index}_id" value={line.id} />
+						<input
+							name="line_{index}_text"
+							class="field"
+							placeholder="Black tie optional"
+							aria-label="Text for line {index + 1}"
+							bind:value={line.text}
+						/>
+						<select
+							name="line_{index}_slot"
+							class="field"
+							aria-label="Where line {index + 1} sits"
+							bind:value={line.slot}
+						>
+							<option value="top">Under the eyebrow</option>
+							<option value="middle">After the time</option>
+							<option value="bottom">At the end</option>
+						</select>
+						<select
+							name="line_{index}_style"
+							class="field"
+							aria-label="How line {index + 1} is set"
+							bind:value={line.style}
+						>
+							<option value="display">Heading</option>
+							<option value="body">Normal</option>
+							<option value="small">Small note</option>
+						</select>
+						<button
+							type="button"
+							class="btn-ghost btn-sm text-bad"
+							onclick={() => removeLine(index)}
+						>
+							Remove
+						</button>
+					</li>
+				{/each}
+			</ul>
 
 			<h2 class="mt-6 text-sm font-semibold text-ink">Style</h2>
 
@@ -163,7 +305,96 @@
 						<input name="accent" class="field font-mono" bind:value={design.accent} maxlength="7" />
 					</div>
 				</div>
+
+				<div>
+					<label class="label" for="ink">Text colour</label>
+					<div class="flex items-center gap-2">
+						<input
+							id="ink"
+							type="color"
+							class="h-11 w-14 cursor-pointer rounded-lg border border-line bg-surface p-1"
+							bind:value={design.ink}
+						/>
+						<input name="ink" class="field font-mono" bind:value={design.ink} maxlength="7" />
+					</div>
+				</div>
+
+				<div>
+					<label class="label" for="background">Card colour</label>
+					<div class="flex items-center gap-2">
+						<input
+							id="background"
+							type="color"
+							class="h-11 w-14 cursor-pointer rounded-lg border border-line bg-surface p-1"
+							bind:value={design.background}
+						/>
+						<input
+							name="background"
+							class="field font-mono"
+							bind:value={design.background}
+							maxlength="7"
+						/>
+					</div>
+					<p class="mt-1 text-xs text-muted">
+						Printed as ink, so anything but white uses a lot of it. Cream is the safe one.
+					</p>
+				</div>
+
+				<div>
+					<label class="label" for="align">Alignment</label>
+					<select id="align" name="align" class="field" bind:value={design.align}>
+						<option value="center">Centred</option>
+						<option value="left">Ranged left</option>
+					</select>
+				</div>
+
+				<div>
+					<label class="label" for="qrPosition">QR code</label>
+					<select id="qrPosition" name="qrPosition" class="field" bind:value={design.qrPosition}>
+						<option value="foot">Centred at the foot</option>
+						<option value="corner">Bottom corner, name beside it</option>
+					</select>
+				</div>
+
+				<div>
+					<label class="label" for="scale">
+						Type size &middot; {Math.round(design.scale * 100)}%
+					</label>
+					<input
+						id="scale"
+						name="scale"
+						type="range"
+						min="0.7"
+						max="1.5"
+						step="0.05"
+						class="w-full accent-accent"
+						bind:value={design.scale}
+					/>
+				</div>
+
+				<div>
+					<label class="label" for="spacing">
+						Line spacing &middot; {Math.round(design.spacing * 100)}%
+					</label>
+					<input
+						id="spacing"
+						name="spacing"
+						type="range"
+						min="0.6"
+						max="1.8"
+						step="0.05"
+						class="w-full accent-accent"
+						bind:value={design.spacing}
+					/>
+				</div>
 			</div>
+
+			{#if design.scale > 1.15 || design.spacing > 1.3}
+				<p class="mt-3 rounded-lg border border-line bg-sunken px-3 py-2 text-xs text-muted">
+					Big settings can push the wording past the QR block. A long line shrinks itself
+					to fit the width, but nothing shrinks it to fit the height -- watch the preview.
+				</p>
+			{/if}
 
 			<h2 class="mt-6 text-sm font-semibold text-ink">Photo</h2>
 
@@ -196,9 +427,24 @@
 				/>
 				<p class="mt-1 text-xs text-muted">
 					JPEG or PNG only -- those are the two formats that can go into a print-ready PDF.
-					It prints across the head of the full invitation, sized to whatever room your
-					wording leaves; the QR insert card stays as it is.
+					It appears on the full invitation only; the QR insert card stays as it is.
 				</p>
+
+				<div class="mt-3">
+					<label class="label" for="photoMode">How it is used</label>
+					<select id="photoMode" name="photoMode" class="field" bind:value={design.photoMode}>
+						<option value="band">A band across the top</option>
+						<option value="background">Behind the whole card</option>
+					</select>
+					<p class="mt-1 text-xs text-muted">
+						{#if design.photoMode === 'background'}
+							The card is tinted over the photo so the wording stays readable. A quiet
+							picture works far better than a busy one.
+						{:else}
+							Sized to whatever room your wording leaves, and dropped if there is none.
+						{/if}
+					</p>
+				</div>
 			</div>
 
 			<div class="mt-3 flex flex-wrap gap-4">

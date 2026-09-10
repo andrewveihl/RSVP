@@ -9,7 +9,15 @@
  * how to put a draw operation onto a PDF page. The admin's live preview renders the
  * same operations as SVG, so the preview cannot disagree with what gets printed.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import {
+	PDFDocument,
+	StandardFonts,
+	rgb,
+	type PDFFont,
+	type PDFImage,
+	type PDFPage,
+	type RGB
+} from 'pdf-lib';
 import { qrPng } from './qr';
 import { rsvpUrl } from './tokens';
 import { hexToTriplet } from './theme';
@@ -95,15 +103,50 @@ function containBox(box: Box, naturalWidth: number, naturalHeight: number): Box 
 	};
 }
 
+/**
+ * Fills the box with the image, keeping its proportions and overflowing the rest.
+ *
+ * The mirror of `containBox`, and what `preserveAspectRatio="xMidYMid slice"` gives
+ * the SVG preview for the same op. Cover always spills on one axis; see the caller for
+ * what stops that spill reaching the paper.
+ */
+function coverBox(box: Box, naturalWidth: number, naturalHeight: number): Box {
+	if (naturalWidth <= 0 || naturalHeight <= 0) return box;
+
+	const scale = Math.max(box.width / naturalWidth, box.height / naturalHeight);
+	const width = naturalWidth * scale;
+	const height = naturalHeight * scale;
+
+	return {
+		x: box.x + (box.width - width) / 2,
+		y: box.y + (box.height - height) / 2,
+		width,
+		height
+	};
+}
+
 const INK = rgb(0.1, 0.1, 0.1);
-const FAINT = rgb(0.45, 0.45, 0.45);
 const CROP = rgb(0, 0, 0);
 
 function accentColour(hex: string) {
-	const triplet = hexToTriplet(hex);
-	if (!triplet) return rgb(0.6, 0.62, 0.55);
+	return hexColour(hex, rgb(0.6, 0.62, 0.55));
+}
+
+/** A hex colour as pdf-lib wants it, or the fallback when it cannot be read. */
+function hexColour(hex: string, fallback: RGB): RGB {
+	const triplet = hexToTriplet(hex ?? '');
+	if (!triplet) return fallback;
 	const [r, g, b] = triplet.split(' ').map((part) => Number(part) / 255);
 	return rgb(r, g, b);
+}
+
+/** Mixes `from` towards `to` by `amount`, for deriving the caption grey from the ink. */
+function mix(from: RGB, to: RGB, amount: number): RGB {
+	return rgb(
+		from.red + (to.red - from.red) * amount,
+		from.green + (to.green - from.green) * amount,
+		from.blue + (to.blue - from.blue) * amount
+	);
 }
 
 interface Fonts {
@@ -131,6 +174,17 @@ export function invitationTextFor(
 		timeLine: invitation.timeLine,
 		venueName: invitation.venueName,
 		venueAddress: invitation.venueAddress,
+		ceremonyLabel: invitation.ceremonyLabel,
+		receptionName: invitation.receptionName,
+		receptionAddress: invitation.receptionAddress,
+		receptionLabel: invitation.receptionLabel,
+		// Only the text matters to the layout; the ids exist so the editor can keep
+		// track of rows across a re-render.
+		lines: (invitation.lines ?? []).map((line) => ({
+			text: line.text,
+			style: line.style,
+			slot: line.slot
+		})),
 		qrCaption: invitation.qrCaption,
 		householdName: household.name,
 		url: rsvpUrl(siteUrl, household.token),
@@ -138,8 +192,15 @@ export function invitationTextFor(
 		showQr: invitation.showQr,
 		showPhoto: invitation.showPhoto && hasPhoto,
 		showBorder: invitation.showBorder,
+		photoMode: invitation.photoMode,
+		align: invitation.align,
+		qrPosition: invitation.qrPosition,
+		scale: invitation.scale,
+		spacing: invitation.spacing,
 		font: invitation.font,
-		accent: invitation.accent
+		accent: invitation.accent,
+		ink: invitation.ink,
+		background: invitation.background
 	};
 }
 
@@ -195,13 +256,17 @@ async function drawCard(
 ): Promise<void> {
 	const layout = layoutCard(text, options, measurer(fonts));
 	const accent = accentColour(text.accent);
+	const ink = hexColour(text.ink, INK);
+	const card = hexColour(text.background, rgb(1, 1, 1));
 
 	// Everything is positioned relative to the trim box; the offset shifts it into the
 	// media box when there is bleed.
 	const ox = layout.offsetX;
 	const oy = layout.offsetY;
 
-	const colours = { ink: INK, faint: FAINT, accent, rule: accent, crop: CROP } as const;
+	// `faint` is the ink lightened rather than a fixed grey, so a card set in navy has
+	// a navy-grey caption under it instead of a stray neutral one.
+	const colours = { ink, faint: mix(ink, card, 0.42), accent, rule: accent, crop: CROP } as const;
 
 	for (const op of layout.ops) {
 		if (op.kind === 'rect') {
@@ -210,7 +275,8 @@ async function drawCard(
 				y: oy + op.y,
 				width: op.width,
 				height: op.height,
-				...(op.fill ? { color: rgb(1, 1, 1) } : {}),
+				...(op.fill ? { color: card } : {}),
+				...(op.opacity === undefined ? {} : { opacity: op.opacity }),
 				...(op.stroke
 					? { borderColor: colours[op.stroke], borderWidth: op.strokeWidth ?? 1 }
 					: {})
@@ -224,8 +290,9 @@ async function drawCard(
 			});
 		} else if (op.kind === 'text') {
 			const font = fonts[op.face];
-			const width = font.widthOfTextAtSize(op.text, op.size);
-			// The layout gives a centre point; PDF draws from the left edge.
+			// PDF always draws from the left edge, so a centred line has to be measured
+			// and shifted; a ranged-left one is already where it belongs.
+			const width = op.align === 'center' ? font.widthOfTextAtSize(op.text, op.size) : 0;
 			page.drawText(op.text, {
 				x: ox + op.x - width / 2,
 				y: oy + op.y,
@@ -239,8 +306,29 @@ async function drawCard(
 			// A missing image leaves its space empty rather than failing the whole batch.
 			if (!image) continue;
 
-			const box =
-				op.fit === 'contain' ? containBox(op, image.width, image.height) : op;
+			if (op.fit === 'cover') {
+				// A cover image is a background, so it is drawn against the *media* box
+				// rather than the trim: it has to reach the paper's edge, and with bleed
+				// the trim stops short of that.
+				//
+				// Cover always overflows on one axis and pdf-lib has no clipping path,
+				// but none is needed here -- the spill goes past the page, and nothing
+				// outside the MediaBox is rendered or printed. That only holds because
+				// this is the whole card; a cover image in a smaller slot would need a
+				// real clip.
+				const media = { x: 0, y: 0, width: layout.mediaWidth, height: layout.mediaHeight };
+				const filled = coverBox(media, image.width, image.height);
+
+				page.drawImage(image, {
+					x: filled.x,
+					y: filled.y,
+					width: filled.width,
+					height: filled.height
+				});
+				continue;
+			}
+
+			const box = op.fit === 'contain' ? containBox(op, image.width, image.height) : op;
 
 			page.drawImage(image, {
 				x: ox + box.x,
@@ -301,7 +389,7 @@ export async function buildInvitationPdf(
 			y: height / 2,
 			size: 12,
 			font: fonts.body,
-			color: FAINT
+			color: rgb(0.45, 0.45, 0.45)
 		});
 	}
 

@@ -20,6 +20,10 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			// Sage. Chosen for the interface, not for charts -- see admin/src/app.css for
 			// why the dashboard uses a different palette entirely.
 			accent: '#8A9A7B',
+			// Matches `--c-ink` in app.css. Kept in step by hand, and `themeCss` emits
+			// nothing at all while they agree, so the stylesheet stays authoritative
+			// for a site nobody has themed.
+			ink: '#1A1A1A',
 			fonts: 'serif-sans',
 			hero: 'photo',
 			order: ['story', 'details', 'party', 'gallery', 'registry', 'faq']
@@ -48,6 +52,14 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			timeLine: 'Four in the afternoon',
 			venueName: 'The Venue',
 			venueAddress: '123 Somewhere Road, Your Town',
+			// Empty by default: with one location there is nothing to tell apart, and a
+			// card that says CEREMONY above its only address is answering a question
+			// nobody asked.
+			ceremonyLabel: 'CEREMONY',
+			receptionName: '',
+			receptionAddress: '',
+			receptionLabel: 'RECEPTION',
+			lines: [],
 			qrCaption: 'SCAN TO RSVP',
 			photoId: null,
 			showUrl: true,
@@ -55,8 +67,17 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			// Off until a photo is actually chosen, so the default card is unchanged.
 			showPhoto: false,
 			showBorder: true,
+			photoMode: 'band',
+			align: 'center',
+			qrPosition: 'foot',
+			// Every one of these defaults reproduces the card exactly as it was before
+			// any of it was adjustable.
+			scale: 1,
+			spacing: 1,
 			font: 'serif',
-			accent: '#8A9A7B'
+			accent: '#8A9A7B',
+			ink: '#1A1A1A',
+			background: '#FFFFFF'
 		},
 		story: {
 			heading: 'Our Story',

@@ -14,6 +14,10 @@ services:
       HOST: 0.0.0.0
       NODE_ENV: production
       DATABASE_PATH: /data/wedding-rsvp.db
+      # adapter-node rejects a larger body with a bare 413, before any of our code
+      # runs. Nothing is uploaded to the guest site -- an RSVP is a handful of fields
+      # -- so this stays small on purpose: it is the public-facing container.
+      BODY_SIZE_LIMIT: 2M
       # adapter-node builds absolute URLs from ORIGIN when it sits behind a proxy.
       # Without it, redirects and origin checks would use the internal container host.
       ORIGIN: ${PUBLIC_SITE_URL}
@@ -54,6 +58,12 @@ services:
       HOST: 0.0.0.0
       NODE_ENV: production
       DATABASE_PATH: /data/wedding-rsvp.db
+      # This is the one that was breaking photo uploads. adapter-node defaults to
+      # 512K and answers anything larger with a bare 413 before the app sees it --
+      # while the app itself advertises an 8MB limit per image, and the gallery
+      # accepts several at once. Sized for a batch of those; the per-image cap in
+      # `storeImage` is still what decides whether any one photo is acceptable.
+      BODY_SIZE_LIMIT: 64M
       ORIGIN: ${PUBLIC_ADMIN_URL}
       TZ: ${TZ:-UTC}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

@@ -105,6 +105,12 @@ form action; `use:enhance` only removes the page reload.
 Dark mode follows the visitor's system setting. It is a swap of CSS custom properties,
 so there is no toggle to hunt for and no flash of the wrong theme on first paint.
 
+The accent and the **text colour** are both editable, with swatches for anyone who does
+not want to think in hex. Both are picked against the light palette, which is what the
+editor previews -- so for dark mode the accent is lightened and the text colour is
+lifted only as far as it needs to be, keeping the hue that was chosen. A colour too pale
+to read on the page says so before it is saved.
+
 **Pages:** home (with the split-flap countdown), Our Story, Event Details, Wedding Party,
 Photos, Registry, FAQ. Any of them can be switched off from the admin panel, which
 removes it from the navigation and makes its URL a 404.
@@ -164,7 +170,7 @@ Sign in with `ADMIN_PASSWORD`. There is one account, because there are two of yo
 | Labels | Avery 5160 / 5162 / 5163 / 5164 sheets from the stored addresses |
 | QR codes | Per household and one universal code, as PNG or SVG |
 | Emails | Template editor with merge fields and a live preview; send to everyone still pending |
-| Website | Every word and photo, plus accent colour, fonts, hero style and section order |
+| Website | Every word and photo, plus accent and text colour, fonts, hero style and section order |
 | Analytics | Response rate over time, status breakdown, daily activity, reminder effectiveness |
 | Activity | A timestamped audit log of everything that has happened |
 | Backups | Daily automatic snapshots, manual backup, download and restore |
@@ -206,18 +212,39 @@ operations, rendered by pdf-lib for print and as SVG for the screen. A preview b
 separately in HTML drifts from the print the moment either side changes, and the drift
 is only ever discovered after something has been printed.
 
-Every line is editable -- the eyebrow, the names, the invite line, the date, the time,
-the venue, the QR caption -- along with the lettering, an accent colour, and whether the
-border, the QR code and the printed fallback link appear at all. A **for a print shop**
-toggle adds 0.125in bleed and crop marks; leave it off for printing at home.
+The card's body is built as a **list of measured lines** before a single coordinate is
+decided. That indirection is what makes it adjustable at all: a second venue, the
+couple's own wording, a type scale and a left-ranged setting are different lists laid
+out by the same code, rather than four special cases threaded through one procedure.
 
-A **photo** can be printed across the head of the full invitation. It is sized to
-whatever room the wording leaves rather than given a fixed height, and is dropped rather
-than printed over the text when there is none -- how much of the card the wording uses
-depends entirely on how much of it was written. JPEG and PNG only, because those are the
-two formats pdf-lib can embed, and a WebP that previewed perfectly and then vanished from
-the print is the worst possible way to find that out. The photo is embedded once per
-document, not once per page. The QR insert card is unchanged.
+Editable:
+
+| | |
+|---|---|
+| **Wording** | Eyebrow, names, invite line, date, time, QR caption |
+| **Where** | Ceremony and reception separately. Leave the reception blank and the card prints one venue with no labels; fill it in and both are labelled, so nobody turns up at the wrong one |
+| **Your own lines** | Any number, each choosing where it sits (under the eyebrow, after the time, at the end) and how it is set (heading, normal, small note) |
+| **Type** | Size and line-spacing multipliers, 70–150% and 60–180% |
+| **Colour** | Accent, text and card colour. The caption grey is mixed from the text colour rather than left a stray neutral |
+| **Layout** | Centred or ranged left; QR at the foot or tucked into the bottom corner with the name beside it |
+| **Photo** | A band across the head, or behind the whole card |
+| **Print** | Lettering, border, QR, printed fallback link, and a **for a print shop** toggle adding 0.125in bleed and crop marks |
+
+A **band** photo is sized to whatever room the wording leaves rather than given a fixed
+height, and is dropped rather than printed over the text when there is none. A
+**background** photo covers the card and gets a scrim laid over it before any wording is
+drawn -- without that, the text is legible or not depending on which part of the picture
+happens to sit behind it, which is not something anyone can judge from a thumbnail.
+
+Cover-cropping is the one place the two renderers do genuinely different work: SVG gets
+it from `preserveAspectRatio="xMidYMid slice"`, while pdf-lib has no clipping path, so
+the PDF draws the image against the media box and lets the page edge do the cropping.
+Both land in the same place.
+
+JPEG and PNG only, because those are the two formats pdf-lib can embed, and a WebP that
+previewed perfectly and then vanished from the print is the worst possible way to find
+that out. The photo is embedded once per document, not once per page. The QR insert card
+is unchanged.
 
 The invitation inherits its venue, date and time from Settings and the Event Details
 page until a line is deliberately written on the card, so "the venue" has one home rather
@@ -230,10 +257,22 @@ Images are stored in the database as BLOBs, so one backup covers the whole site 
 there is no uploads volume to keep in step between the two containers.
 
 Uploads are downscaled in the browser before they are sent -- a photo off a phone is
-routinely 4000px and several megabytes, against an 8MB server cap, and nothing on the
-site is displayed wider than about 1600px. Re-encoding also strips EXIF, which quietly
-removes the GPS coordinates of wherever the photo was taken. What reaches the server is
-still validated by its magic bytes, not by what the browser called it.
+routinely 4000px and several megabytes, and nothing on the site is displayed wider than
+about 1600px. Re-encoding also strips EXIF, which quietly removes the GPS coordinates of
+wherever the photo was taken. What reaches the server is still validated by its magic
+bytes, not by what the browser called it.
+
+The downscaler shrinks to a **byte budget**, not to a pixel size, and that distinction
+is load-bearing. An upload crosses three limits: the browser's, `BODY_SIZE_LIMIT` in
+adapter-node, and whatever the reverse proxy allows. Only the first produces an error
+anyone can read -- the other two answer a bare `413`. Guaranteeing the size in the
+browser means an upload does not depend on how the deployment in front of it is
+configured.
+
+> **If photo uploads return 413**, the reverse proxy is the usual culprit. nginx -- and
+> Nginx Proxy Manager, which wraps it -- defaults `client_max_body_size` to 1MB. Set
+> `client_max_body_size 64m;` in the proxy host's Advanced tab. `docker-compose.yml`
+> already raises adapter-node's own limit, which defaults to 512KB.
 
 ### Backups
 

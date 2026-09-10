@@ -6,9 +6,29 @@ import { replaceImage } from '$lib/server/image-upload';
 import { invitationContent } from '$lib/server/invitation-content';
 import { getConfig } from '$shared/config';
 import { CARD_PRESETS, PRINTABLE_PHOTO_TYPES } from '$shared/invitations';
+import { newRowId, readRows } from '$lib/server/content-forms';
 import { cleanText } from '$shared/sanitize';
 import { hexToTriplet } from '$shared/theme';
-import type { InvitationContent } from '$shared/types';
+import type { InvitationContent, InvitationLine } from '$shared/types';
+
+type LineStyle = InvitationLine['style'];
+type LineSlot = InvitationLine['slot'];
+
+const LINE_STYLES: LineStyle[] = ['display', 'body', 'small'];
+const LINE_SLOTS: LineSlot[] = ['top', 'middle', 'bottom'];
+
+/**
+ * A slider's value, kept inside the range the layout will honour.
+ *
+ * A number that arrives outside it is clamped rather than refused: these come from
+ * range inputs, so an out-of-range value means something tampered or a browser did
+ * something odd, and neither is worth an error message the couple has to read.
+ */
+function clampNumber(value: FormDataEntryValue | null, min: number, max: number): number {
+	const parsed = Number.parseFloat(value?.toString() ?? '');
+	if (!Number.isFinite(parsed)) return 1;
+	return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
+}
 
 export const load: PageServerLoad = ({ url }) => {
 	// The guests page links here with a pre-made selection, so a batch flows straight
@@ -46,8 +66,25 @@ export const actions: Actions = {
 		const text = (name: string, max = 200) => cleanText(form.get(name), { max });
 
 		const accent = text('accent', 9);
+		const ink = text('ink', 9);
+		const background = text('background', 9);
 		const font = form.get('font') === 'sans' ? 'sans' : 'serif';
 		const names = text('names', 120);
+
+		// The couple's own lines, in the order the browser serialised them -- which is
+		// the order they appear in the editor after any rearranging.
+		const lines: InvitationLine[] = readRows(form, 'line', 20)
+			.map((row, index) => ({
+				id: row.id(newRowId('line', index)),
+				text: row.text('text', 160),
+				style: LINE_STYLES.includes(row.text('style', 10) as LineStyle)
+					? (row.text('style', 10) as LineStyle)
+					: 'body',
+				slot: LINE_SLOTS.includes(row.text('slot', 10) as LineSlot)
+					? (row.text('slot', 10) as LineSlot)
+					: 'bottom'
+			}))
+			.filter((line) => line.text);
 
 		// Checked before a single byte of image is written. Bailing out afterwards would
 		// leave the uploaded photo stored but unreferenced, and -- worse -- would already
@@ -92,6 +129,11 @@ export const actions: Actions = {
 			timeLine: text('timeLine', 120),
 			venueName: text('venueName', 160),
 			venueAddress: cleanText(form.get('venueAddress'), { multiline: true, max: 300 }),
+			ceremonyLabel: text('ceremonyLabel', 40),
+			receptionName: text('receptionName', 160),
+			receptionAddress: cleanText(form.get('receptionAddress'), { multiline: true, max: 300 }),
+			receptionLabel: text('receptionLabel', 40),
+			lines,
 			qrCaption: text('qrCaption', 60),
 			photoId,
 			showUrl: form.get('showUrl') === '1',
@@ -100,10 +142,20 @@ export const actions: Actions = {
 			// this flag, and an empty band at the head of the card is just a mistake.
 			showPhoto: form.get('showPhoto') === '1' && photoId !== null,
 			showBorder: form.get('showBorder') === '1',
+			photoMode: form.get('photoMode') === 'background' ? 'background' : 'band',
+			align: form.get('align') === 'left' ? 'left' : 'center',
+			qrPosition: form.get('qrPosition') === 'corner' ? 'corner' : 'foot',
+			// Clamped here as well as in the layout: this is what gets stored, and a
+			// value the layout has to correct on every render is a value that will read
+			// back into the editor looking like it was accepted.
+			scale: clampNumber(form.get('scale'), 0.7, 1.5),
+			spacing: clampNumber(form.get('spacing'), 0.6, 1.8),
 			font,
 			// An unparseable colour is refused rather than stored, or every future render
 			// would silently fall back and the admin would never know why.
-			accent: hexToTriplet(accent) ? accent : '#8A9A7B'
+			accent: hexToTriplet(accent) ? accent : '#8A9A7B',
+			ink: hexToTriplet(ink) ? ink : '#1A1A1A',
+			background: hexToTriplet(background) ? background : '#FFFFFF'
 		};
 
 		setSection('invitation', invitation);

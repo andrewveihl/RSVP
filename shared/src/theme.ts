@@ -43,6 +43,18 @@ function darken(triplet: string, amount: number): string {
 }
 
 /**
+ * Perceived brightness, 0 (black) to 1 (white).
+ *
+ * The usual sRGB weighting rather than a plain average: the eye reads green as far
+ * brighter than blue, so `0 0 255` and `0 255 0` are nothing alike to look at even
+ * though they average the same.
+ */
+function brightness(triplet: string): number {
+	const [r, g, b] = triplet.split(' ').map(Number);
+	return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/**
  * `:root` twice, which matches exactly the same element but at double the specificity.
  *
  * The stylesheet declares the shipped palette on a plain `:root`, and whichever rule
@@ -76,7 +88,11 @@ const FONT_STACKS = {
  * Inlined rather than served as a file because it changes whenever the couple edit it,
  * and a separate request would need cache-busting for a few hundred bytes.
  */
-export function themeCss(theme: ThemeContent, shippedAccent = '#8A9A7B'): string {
+export function themeCss(
+	theme: ThemeContent,
+	shippedAccent = '#8A9A7B',
+	shippedInk = '#1A1A1A'
+): string {
 	const rules: string[] = [];
 
 	const accent = hexToTriplet(theme.accent);
@@ -91,6 +107,23 @@ export function themeCss(theme: ThemeContent, shippedAccent = '#8A9A7B'): string
 		rules.push(
 			`@media (prefers-color-scheme:dark){${ROOT}{--c-accent:${lighten(accent, 0.35)};` +
 				`--c-accent-hover:${lighten(accent, 0.5)};--c-accent-soft:${darken(accent, 0.55)}}}`
+		);
+	}
+
+	const ink = hexToTriplet(theme.ink ?? '');
+	if (ink && (theme.ink ?? '').toLowerCase() !== shippedInk.toLowerCase()) {
+		// `--c-muted` follows the ink rather than staying the shipped grey, or a navy
+		// heading would sit above a caption that had nothing to do with it.
+		rules.push(`${ROOT}{--c-ink:${ink};--c-muted:${lighten(ink, 0.42)}}`);
+
+		// The couple picks this against the light palette, which is what the editor
+		// shows them. On the dark one a near-black is invisible, so it is lifted until
+		// it reads -- and only lifted, so the hue they chose survives. A colour already
+		// light enough is left exactly as it is.
+		const darkInk = brightness(ink) < 0.55 ? lighten(ink, 0.82) : ink;
+		rules.push(
+			`@media (prefers-color-scheme:dark){${ROOT}{--c-ink:${darkInk};` +
+				`--c-muted:${darken(darkInk, 0.32)}}}`
 		);
 	}
 

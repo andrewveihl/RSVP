@@ -61,17 +61,40 @@
 			<p class="mt-4 text-sm text-muted">Nobody added yet.</p>
 		{/if}
 
-		<ul class="mt-4 grid gap-4 sm:grid-cols-2">
+		<p class="mt-1 text-xs text-muted">
+			They appear on the site in this order. Use Up and Down to rearrange them, then save.
+		</p>
+
+		<!--
+			One column, not two. The order is the point of this list, and in a two-column
+			grid "up" moves a card left rather than up -- which is what made the buttons
+			read as broken.
+		-->
+		<ul class="mt-4 space-y-4">
 			{#each members as member, index (member.id)}
 				<li class="rounded-xl border border-line p-4">
-					<div class="flex items-center justify-between gap-2">
-						<span class="text-xs uppercase tracking-wide text-muted">#{index + 1}</span>
-						<div class="flex gap-1">
-							<button type="button" class="btn-ghost btn-sm" onclick={() => move(index, -1)} aria-label="Move earlier">
-								&uarr;
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<span class="text-xs font-semibold uppercase tracking-wide text-muted">
+							#{index + 1}{member.name ? ` · ${member.name}` : ''}
+						</span>
+						<div class="flex flex-wrap gap-1">
+							<!-- Disabled at the ends, so the list says where it stops rather than
+							     silently ignoring a press. -->
+							<button
+								type="button"
+								class="btn-secondary btn-sm"
+								disabled={index === 0}
+								onclick={() => move(index, -1)}
+							>
+								&uarr; Up
 							</button>
-							<button type="button" class="btn-ghost btn-sm" onclick={() => move(index, 1)} aria-label="Move later">
-								&darr;
+							<button
+								type="button"
+								class="btn-secondary btn-sm"
+								disabled={index === members.length - 1}
+								onclick={() => move(index, 1)}
+							>
+								&darr; Down
 							</button>
 							<button type="button" class="btn-ghost btn-sm text-bad" onclick={() => remove(index)}>
 								Remove
@@ -81,7 +104,9 @@
 
 					<input type="hidden" name="member_{index}_id" value={member.id} />
 
-					<div class="mt-3 space-y-3">
+					<!-- Two columns inside the card, so one column of cards does not make the
+					     page twice as long as it was. -->
+					<div class="mt-3 grid gap-3 sm:grid-cols-2">
 						<div>
 							<label class="label" for="member_{index}_name">Name</label>
 							<input
