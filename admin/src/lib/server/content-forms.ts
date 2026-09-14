@@ -10,6 +10,15 @@
 import { cleanText, optionalText, safeUrl } from '$shared/sanitize';
 
 export interface RowReader {
+	/**
+	 * This row's index in the *form*, which is not its index in the returned array.
+	 *
+	 * Rows removed in the browser leave gaps, and those gaps are skipped -- so the
+	 * third row returned may be `member_4_*` in the submission. Any caller reading a
+	 * field this reader does not cover (a file input, say) has to use this rather than
+	 * its position in the array, or it reads a different row's answer.
+	 */
+	index: number;
 	/** Field value for this row, cleaned to a single line. */
 	text(field: string, max?: number): string;
 	/** Field value allowing newlines. */
@@ -32,6 +41,7 @@ export function readRows(form: FormData, prefix: string, limit = 200): RowReader
 		if (!form.has(key('id'))) continue;
 
 		rows.push({
+			index,
 			text: (field, max = 300) => cleanText(form.get(key(field)), { max }),
 			multiline: (field, max = 4000) => cleanText(form.get(key(field)), { multiline: true, max }),
 			url: (field) => safeUrl(form.get(key(field))) ?? '',

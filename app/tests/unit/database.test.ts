@@ -29,7 +29,7 @@ import {
 import { getDb } from '$shared/db/connection';
 import { MIGRATIONS, migrate } from '$shared/db/schema';
 import { visibleDetailsRows } from '$shared/details';
-import { isPartyGrouped, partyGroups } from '$shared/party';
+import { isPartyGrouped, partyGroups, partyInitial, visiblePartyMembers } from '$shared/party';
 import { localDayKey } from '$shared/format';
 import { defaultSiteContent } from '$shared/defaults';
 import type { DetailsContent, PartyMember } from '$shared/types';
@@ -533,6 +533,81 @@ describe('stats', () => {
 
 		const batches = batchBreakdown();
 		expect(batches.map((batch) => batch.batch).sort()).toEqual(['Unassigned', 'Wave 1']);
+	});
+});
+
+/**
+ * These exist because the guest site crashed. Calling `.trim()` on a member with no
+ * name threw during hydration, and an uncaught TypeError there does not degrade -- it
+ * took the whole Wedding Party page down for every visitor over one bad row.
+ */
+describe('the wedding party members the guest site will render', () => {
+	it('keeps a complete member exactly as written', () => {
+		const member = {
+			id: 'm1',
+			name: 'Parker',
+			role: 'Best man',
+			group: 'Groomsmen',
+			bio: 'A friend',
+			imageId: 'img1'
+		};
+
+		expect(visiblePartyMembers([member])).toEqual([member]);
+	});
+
+	it('does not throw on a member missing every field', () => {
+		expect(() => visiblePartyMembers([{}])).not.toThrow();
+		expect(() => visiblePartyMembers([null, undefined, 'nonsense'])).not.toThrow();
+	});
+
+	it('drops a member with no name, having nothing to put on the card', () => {
+		const shown = visiblePartyMembers([
+			{ id: 'a', name: 'Logan' },
+			{ id: 'b' },
+			{ id: 'c', name: '   ' }
+		]);
+
+		expect(shown.map((member) => member.name)).toEqual(['Logan']);
+	});
+
+	it('fills in the fields the card reads, so the markup can stop guarding', () => {
+		const [member] = visiblePartyMembers([{ name: 'Parker' }]);
+
+		expect(member.id).toBeTruthy();
+		expect(member.role).toBe('');
+		expect(member.group).toBe('');
+		expect(member.bio).toBe('');
+		expect(member.imageId).toBeNull();
+	});
+
+	it('survives a members value that is not an array at all', () => {
+		expect(visiblePartyMembers('not an array')).toEqual([]);
+		expect(visiblePartyMembers(undefined)).toEqual([]);
+	});
+
+	it('still groups correctly once normalised', () => {
+		const members = visiblePartyMembers([
+			{ id: 'a', name: 'Ada', group: 'Bridesmaids' },
+			{ id: 'b' },
+			{ id: 'c', name: 'Cal', group: 'Groomsmen' }
+		]);
+
+		expect(partyGroups(members).map((group) => group.label)).toEqual([
+			'Bridesmaids',
+			'Groomsmen'
+		]);
+	});
+
+	describe('the initial on a member with no photo', () => {
+		it('is the first letter, upper-cased', () => {
+			expect(partyInitial('parker')).toBe('P');
+			expect(partyInitial('  logan')).toBe('L');
+		});
+
+		it('is empty rather than a crash when there is no name', () => {
+			expect(partyInitial('')).toBe('');
+			expect(partyInitial('   ')).toBe('');
+		});
 	});
 });
 

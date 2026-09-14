@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
-	import { isPartyGrouped, partyGroups } from '$shared/party';
+	import { isPartyGrouped, partyGroups, partyInitial } from '$shared/party';
 	import type { PartyMember } from '$shared/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const party = $derived(data.site.content.party);
-	const groups = $derived(partyGroups(party.members));
+	// Normalised in the load, not read straight out of the stored document: every
+	// member here has a name and an id, so the markup below does not have to guard.
+	const members = $derived(data.members);
+	const groups = $derived(partyGroups(members));
 	const grouped = $derived(isPartyGrouped(groups));
 
 	/*
@@ -38,7 +41,7 @@
 			<!-- A calm placeholder block keeps the grid even when a photo is missing. -->
 			<div class="flex aspect-[4/5] w-full items-center justify-center bg-sunken">
 				<span class="font-display text-4xl text-muted/60">
-					{member.name.trim().charAt(0).toUpperCase()}
+					{partyInitial(member.name)}
 				</span>
 			</div>
 		{/if}
@@ -68,7 +71,7 @@
 		{/if}
 	</header>
 
-	{#if party.members.length === 0}
+	{#if members.length === 0}
 		<p class="mt-16 text-center text-muted">Details coming soon.</p>
 	{:else if grouped}
 		<div class="mt-14 flex flex-wrap justify-center gap-12">
@@ -87,7 +90,7 @@
 		</div>
 	{:else}
 		<ul class="mt-14 flex flex-wrap justify-center gap-8">
-			{#each party.members as member, index (member.id)}
+			{#each members as member, index (member.id)}
 				{@render card(member, index)}
 			{/each}
 		</ul>

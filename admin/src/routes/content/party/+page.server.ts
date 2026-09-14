@@ -22,14 +22,19 @@ export const actions: Actions = {
 		const rows = readRows(result.form, 'member', 40);
 		const members: PartyMember[] = [];
 
-		for (const [index, row] of rows.entries()) {
-			const id = row.id(newRowId('member', index));
+		for (const row of rows) {
+			// `row.index` is where this row sat in the *form*, which is not where it sits
+			// in `rows`: a member removed in the browser leaves a gap, and the gap is
+			// skipped. Using the array position here would read the next member's photo
+			// -- or nothing at all, which is one of the ways a photo appeared not to
+			// upload when it had.
+			const id = row.id(newRowId('member', row.index));
 			const existing = previous.members.find((member) => member.id === id);
 
-			const upload = await storeUpload(result.form.get(`member_${index}_image`), 'party');
+			const upload = await storeUpload(result.form.get(`member_${row.index}_image`), 'party');
 			if (upload.error) return fail(400, { error: upload.error });
 
-			const removing = result.form.get(`member_${index}_removeImage`) === '1';
+			const removing = result.form.get(`member_${row.index}_removeImage`) === '1';
 			let imageId = upload.image?.id ?? existing?.imageId ?? null;
 
 			if (upload.image && existing?.imageId) deleteImage(existing.imageId);
