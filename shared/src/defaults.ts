@@ -14,7 +14,10 @@ export function defaultSiteContent(coupleNames = 'Andrew & Madeline'): SiteConte
 			title: coupleNames,
 			subtitle: 'are getting married',
 			dateLine: 'May 29, 2027',
-			imageId: null
+			imageId: null,
+			// Dead centre, which is what the browser would do unasked.
+			focusX: 50,
+			focusY: 50
 		},
 		theme: {
 			// Sage. Chosen for the interface, not for charts -- see admin/src/app.css for

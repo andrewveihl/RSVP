@@ -16,13 +16,29 @@
 	function add() {
 		members = [
 			...members,
-			{ id: `member-new-${members.length}-${Date.now()}`, name: '', role: '', bio: '', imageId: null }
+			{
+				id: `member-new-${members.length}-${Date.now()}`,
+				name: '',
+				role: '',
+				// Copied from the person above, because a group is typed once and then
+				// repeated for everyone in it.
+				group: members.at(-1)?.group ?? '',
+				bio: '',
+				imageId: null
+			}
 		];
 	}
 
 	function remove(index: number) {
 		members = members.filter((_, position) => position !== index);
 	}
+
+	// Offered as suggestions under every group field. Typing "Bridesmaid" where the
+	// others say "Bridesmaids" would quietly make a third block on the site, and this
+	// is the cheapest way to stop that.
+	const groupNames = $derived([
+		...new Set(members.map((member) => member.group.trim()).filter(Boolean))
+	]);
 
 	function move(index: number, delta: number) {
 		const target = index + delta;
@@ -64,6 +80,17 @@
 		<p class="mt-1 text-xs text-muted">
 			They appear on the site in this order. Use Up and Down to rearrange them, then save.
 		</p>
+		<p class="mt-1 text-xs text-muted">
+			Give people the same group -- Bridesmaids, Groomsmen -- and the site shows each group
+			as its own block, two across. Leave every group empty and the whole party is shown
+			together, four across.
+		</p>
+
+		<datalist id="party-groups">
+			{#each groupNames as name (name)}
+				<option value={name}></option>
+			{/each}
+		</datalist>
 
 		<!--
 			One column, not two. The order is the point of this list, and in a two-column
@@ -127,9 +154,15 @@
 							/>
 						</div>
 						<div>
-							<label class="label" for="member_{index}_bio">Short bio</label>
-							<textarea id="member_{index}_bio" name="member_{index}_bio" class="field" rows="3"
-								>{member.bio}</textarea>
+							<label class="label" for="member_{index}_group">Group</label>
+							<input
+								id="member_{index}_group"
+								name="member_{index}_group"
+								class="field"
+								list="party-groups"
+								placeholder="Bridesmaids"
+								bind:value={members[index].group}
+							/>
 						</div>
 						<div>
 							<label class="label" for="member_{index}_image">Photo</label>
@@ -152,6 +185,11 @@
 								use:downscale
 								class="field"
 							/>
+						</div>
+						<div class="sm:col-span-2">
+							<label class="label" for="member_{index}_bio">Short bio</label>
+							<textarea id="member_{index}_bio" name="member_{index}_bio" class="field" rows="3"
+								>{member.bio}</textarea>
 						</div>
 					</div>
 				</li>

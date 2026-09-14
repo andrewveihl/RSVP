@@ -4,7 +4,7 @@ import { guard, isGuardFailure } from '$lib/server/guard';
 import { replaceImage } from '$lib/server/image-upload';
 import { deleteImage, getSection, getSetting, logActivity, setSection } from '$shared/db';
 import { getConfig } from '$shared/config';
-import { cleanText } from '$shared/sanitize';
+import { cleanText, clampInteger } from '$shared/sanitize';
 import type { SectionToggles } from '$shared/types';
 
 export const load: PageServerLoad = () => {
@@ -45,7 +45,11 @@ export const actions: Actions = {
 			title: cleanText(result.form.get('title'), { max: 120 }),
 			subtitle: cleanText(result.form.get('subtitle'), { max: 160 }),
 			dateLine: cleanText(result.form.get('dateLine'), { max: 120 }),
-			imageId
+			imageId,
+			// The framing sliders only exist while there is a photo to frame, so a save
+			// made without them keeps the point already chosen rather than recentring it.
+			focusX: clampInteger(result.form.get('focusX'), 0, 100, current.focusX),
+			focusY: clampInteger(result.form.get('focusY'), 0, 100, current.focusY)
 		});
 
 		logActivity({

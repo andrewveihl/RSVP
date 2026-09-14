@@ -49,6 +49,7 @@ export const actions: Actions = {
 				id,
 				name,
 				role: row.text('role', 80),
+				group: row.text('group', 60),
 				bio: row.multiline('bio', 1000),
 				imageId
 			});

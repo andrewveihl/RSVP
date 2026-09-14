@@ -128,6 +128,17 @@ export interface HeroContent {
 	dateLine: string;
 	/** Id of a row in `site_images`, or null for the plain gradient. */
 	imageId: string | null;
+	/**
+	 * Which point of the photo stays in frame, as percentages from the top left.
+	 *
+	 * The hero crops its photo to whatever shape the window happens to be, so a
+	 * portrait photo on a wide screen loses its top and its bottom -- which is how a
+	 * couple ends up with a beautiful picture of their own knees. These two numbers
+	 * are the `object-position` the crop holds on to. 50/50 is the browser's own
+	 * default, so a hero nobody has adjusted is framed exactly as it was before.
+	 */
+	focusX: number;
+	focusY: number;
 }
 
 export interface StoryMilestone {
@@ -171,7 +182,17 @@ export interface DetailsContent {
 export interface PartyMember {
 	id: string;
 	name: string;
+	/** This person's own title: "Maid of Honour", "Best Man". */
 	role: string;
+	/**
+	 * The block they stand in -- "Bridesmaids", "Groomsmen" -- or empty for a party
+	 * shown all together.
+	 *
+	 * Free text rather than two fixed sides, because a wedding party is not always
+	 * two sides. Matching is case-insensitive so a stray capital cannot split one
+	 * block into two.
+	 */
+	group: string;
 	bio: string;
 	imageId: string | null;
 }

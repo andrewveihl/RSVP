@@ -29,9 +29,10 @@ import {
 import { getDb } from '$shared/db/connection';
 import { MIGRATIONS, migrate } from '$shared/db/schema';
 import { visibleDetailsRows } from '$shared/details';
+import { isPartyGrouped, partyGroups } from '$shared/party';
 import { localDayKey } from '$shared/format';
 import { defaultSiteContent } from '$shared/defaults';
-import type { DetailsContent } from '$shared/types';
+import type { DetailsContent, PartyMember } from '$shared/types';
 
 beforeEach(freshDatabase);
 afterEach(dropDatabase);
@@ -532,5 +533,68 @@ describe('stats', () => {
 
 		const batches = batchBreakdown();
 		expect(batches.map((batch) => batch.batch).sort()).toEqual(['Unassigned', 'Wave 1']);
+	});
+});
+
+describe('how the wedding party is split into blocks', () => {
+	const member = (name: string, group: string): PartyMember => ({
+		id: `member-${name.toLowerCase()}`,
+		name,
+		role: '',
+		group,
+		bio: '',
+		imageId: null
+	});
+
+	it('keeps one unnamed block when nobody has been grouped', () => {
+		const groups = partyGroups([member('Ada', ''), member('Bea', '')]);
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].label).toBe('');
+		expect(groups[0].members.map((m) => m.name)).toEqual(['Ada', 'Bea']);
+		// Which is the signal for the four-across layout rather than the split one.
+		expect(isPartyGrouped(groups)).toBe(false);
+	});
+
+	it('orders the blocks by where their first member sits in the list', () => {
+		const groups = partyGroups([
+			member('Ada', 'Bridesmaids'),
+			member('Cal', 'Groomsmen'),
+			member('Bea', 'Bridesmaids')
+		]);
+
+		expect(groups.map((group) => group.label)).toEqual(['Bridesmaids', 'Groomsmen']);
+		expect(groups[0].members.map((m) => m.name)).toEqual(['Ada', 'Bea']);
+		expect(isPartyGrouped(groups)).toBe(true);
+	});
+
+	it('treats a differently-cased or padded group as the same block', () => {
+		const groups = partyGroups([
+			member('Ada', 'Groomsmen'),
+			member('Cal', ' groomsmen '),
+			member('Bea', 'GROOMSMEN')
+		]);
+
+		expect(groups).toHaveLength(1);
+		// The first spelling is the one printed, not the shouted one.
+		expect(groups[0].label).toBe('Groomsmen');
+	});
+
+	it('gives the ungrouped their own unnamed block alongside the named ones', () => {
+		const groups = partyGroups([member('Ada', 'Bridesmaids'), member('Cal', '')]);
+
+		expect(groups.map((group) => group.label)).toEqual(['Bridesmaids', '']);
+		expect(isPartyGrouped(groups)).toBe(true);
+	});
+
+	it('survives members saved before the field existed', () => {
+		// A party document written by an earlier version: no `group` at all. A guest
+		// page must not throw over it.
+		const legacy = [{ ...member('Ada', '') }] as Partial<PartyMember>[];
+		delete legacy[0].group;
+
+		const groups = partyGroups(legacy as PartyMember[]);
+		expect(groups).toHaveLength(1);
+		expect(isPartyGrouped(groups)).toBe(false);
 	});
 });

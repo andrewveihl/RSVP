@@ -269,6 +269,87 @@ test('the website content editor saves', async ({ page }) => {
 	await expect(page.getByLabel('Line above the names')).toHaveValue('cannot wait to marry');
 });
 
+/**
+ * Gives the hero a photo, and hands back the stored hero document.
+ *
+ * The framing control only exists once there is something to frame, and the seed has
+ * no images in it. A one-pixel PNG is enough: this spec is about the wiring from the
+ * sliders to the saved document, and nothing here looks at the pixels.
+ */
+function giveTheHeroAPhoto(): void {
+	const db = new Database(DATABASE_PATH);
+	try {
+		const png = Buffer.from(
+			'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+			'base64'
+		);
+		const now = new Date().toISOString();
+
+		db.prepare(
+			`INSERT INTO site_images (id, section, filename, mimetype, data, sort_order, created_at)
+			 VALUES ('e2e-hero-photo', 'hero', 'hero.png', 'image/png', ?, 0, ?)
+			 ON CONFLICT(id) DO NOTHING`
+		).run(png, now);
+
+		// Merged into whatever the hero document already says, so an earlier spec's
+		// wording is not quietly thrown away by this one.
+		const row = db
+			.prepare("SELECT value FROM site_content WHERE key = 'hero'")
+			.get() as { value: string } | undefined;
+		const hero = { ...(row ? JSON.parse(row.value) : {}), imageId: 'e2e-hero-photo' };
+
+		db.prepare(
+			`INSERT INTO site_content (key, value, updated_at) VALUES ('hero', ?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+		).run(JSON.stringify(hero), now);
+	} finally {
+		db.close();
+	}
+}
+
+test('the hero photo can be framed, and the framing sticks', async ({ page }) => {
+	giveTheHeroAPhoto();
+	await page.goto('/content');
+
+	await page.getByLabel(/^Across/).fill('20');
+	await page.getByLabel(/^Down/).fill('85');
+	await page.getByRole('button', { name: 'Save home page' }).click();
+	await expect(page.getByRole('status')).toContainText('Home page saved.');
+
+	// The guest home page reads these two straight into `object-position`.
+	const stored = query<{ value: string }>("SELECT value FROM site_content WHERE key = 'hero'");
+	expect(JSON.parse(stored!.value)).toMatchObject({ focusX: 20, focusY: 85 });
+
+	await page.reload();
+	await expect(page.getByLabel(/^Across/)).toHaveValue('20');
+	await expect(page.getByLabel(/^Down/)).toHaveValue('85');
+});
+
+test('a save made without the framing sliders leaves the framing alone', async ({ page }) => {
+	// The sliders are only rendered while there is a photo, so every save made before
+	// one is uploaded arrives without them -- and must not recentre a point the couple
+	// chose for the photo they had.
+	giveTheHeroAPhoto();
+	await page.goto('/content');
+	await page.getByLabel(/^Across/).fill('20');
+	await page.getByRole('button', { name: 'Save home page' }).click();
+	await expect(page.getByRole('status')).toContainText('Home page saved.');
+
+	await page.getByLabel('Remove this photo').check();
+	await page.getByRole('button', { name: 'Save home page' }).click();
+	await expect(page.getByRole('status')).toContainText('Home page saved.');
+	await expect(page.getByLabel(/^Across/)).toHaveCount(0);
+
+	// A plain save of the wording, with no photo and so no sliders in the form.
+	await page.getByRole('button', { name: 'Save home page' }).click();
+	await expect(page.getByRole('status')).toContainText('Home page saved.');
+
+	const stored = query<{ value: string }>("SELECT value FROM site_content WHERE key = 'hero'");
+	const hero = JSON.parse(stored!.value);
+	expect(hero.imageId).toBeNull();
+	expect(hero.focusX).toBe(20);
+});
+
 test('turning a section off removes it from the guest site', async ({ page }) => {
 	await page.goto('/content');
 

@@ -23,6 +23,7 @@
 			alt=""
 			fetchpriority="high"
 			class="absolute inset-0 -z-10 h-full w-full object-cover"
+			style="object-position: {hero.focusX}% {hero.focusY}%"
 		/>
 		<!-- A scrim rather than a filter on the image: it keeps the type legible over a
 		     bright photo without washing the photo out. -->
