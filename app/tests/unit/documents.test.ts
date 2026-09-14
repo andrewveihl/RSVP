@@ -456,6 +456,30 @@ describe('what the couple can change about the card', () => {
 		});
 	});
 
+	/**
+	 * `mergeSection` fills in missing top-level keys but never looks inside an array,
+	 * so nothing has vouched for the contents of `lines`. Getting this wrong on a
+	 * member of the wedding party once took a whole guest page down.
+	 */
+	it('does not throw on a stored document full of nonsense', () => {
+		const broken = {
+			lines: [null, {}, { text: 42 }, 'not an object', { text: 'Fine', slot: 'bottom' }],
+			receptionName: null,
+			receptionAddress: undefined,
+			ceremonyLabel: null,
+			venueName: null
+		} as unknown as Partial<ReturnType<typeof invitationTextFor>>;
+
+		expect(() => laid(broken)).not.toThrow();
+		// And the one usable line still makes it onto the card.
+		expect(texts(laid(broken))).toContain('Fine');
+	});
+
+	it('does not throw when lines is not an array at all', () => {
+		const broken = { lines: 'nope' } as unknown as Partial<ReturnType<typeof invitationTextFor>>;
+		expect(() => laid(broken)).not.toThrow();
+	});
+
 	describe('the couple’s own lines', () => {
 		const line = (text: string, slot: 'top' | 'middle' | 'bottom') => ({
 			text,

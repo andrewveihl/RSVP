@@ -1,4 +1,5 @@
 import type { Actions, PageServerLoad } from './$types';
+import { asRows, asText } from '$shared/content-rows';
 import { guard, isGuardFailure } from '$lib/server/guard';
 import { newRowId, readRows } from '$lib/server/content-forms';
 import { getSection, getSetting, logActivity, setSection } from '$shared/db';
@@ -7,12 +8,26 @@ import { defaultSiteContent } from '$shared/defaults';
 import { cleanText } from '$shared/sanitize';
 import type { FaqItem } from '$shared/types';
 
-export const load: PageServerLoad = () => ({
-	faq: getSection('faq', getSetting('couple_names')),
-	// Offered as one-click additions, so the standard questions are never retyped.
-	templates: defaultSiteContent().faq.items,
-	siteUrl: getConfig().siteUrl
-});
+export const load: PageServerLoad = () => {
+	const faq = getSection('faq', getSetting('couple_names'));
+
+	return {
+		faq: {
+			...faq,
+			// See the party editor: normalised before the editor clones it into state,
+			// because the list is keyed on the item's id -- and because the "add a
+			// standard question" check reads `.question.trim()` off every one of them.
+			items: asRows(faq.items).map((item, index) => ({
+				id: asText(item.id) || `faq-${index}`,
+				question: asText(item.question),
+				answer: asText(item.answer)
+			}))
+		},
+		// Offered as one-click additions, so the standard questions are never retyped.
+		templates: defaultSiteContent().faq.items,
+		siteUrl: getConfig().siteUrl
+	};
+};
 
 export const actions: Actions = {
 	save: async (event) => {

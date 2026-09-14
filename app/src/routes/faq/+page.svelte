@@ -5,6 +5,8 @@
 	let { data }: { data: PageData } = $props();
 
 	const faq = $derived(data.site.content.faq);
+	// Normalised in the load: every item here has an id and a question.
+	const items = $derived(data.items);
 </script>
 
 <svelte:head>
@@ -27,7 +29,7 @@
 		independent toggles in those that do not.
 	-->
 	<div class="mt-12 divide-y divide-line border-y border-line">
-		{#each faq.items as item, index (item.id)}
+		{#each items as item, index (item.id)}
 			<details use:reveal={{ delay: index * 40 }} name="faq" class="group">
 				<summary
 					class="flex min-h-[56px] cursor-pointer list-none items-center justify-between gap-4 py-5 text-left text-ink transition-colors hover:text-accent"

@@ -26,7 +26,21 @@ interface ContentRow {
  */
 function mergeSection<T extends object>(fallback: T, stored: unknown): T {
 	if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return fallback;
-	return { ...fallback, ...(stored as Partial<T>) };
+
+	// A plain spread would let a stored `null` win over a perfectly good default, and
+	// that is not a theoretical worry -- `hexToTriplet(theme.accent)` runs in the root
+	// layout of every guest page, so one null accent in this document would answer 500
+	// for the whole site. A key that is present but empty is a real answer and is kept;
+	// a key that is absent, null or undefined is not an answer at all.
+	const merged = { ...fallback };
+
+	for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
+		if (value === null || value === undefined) continue;
+		if (!(key in merged)) continue; // A field this version does not know about.
+		(merged as Record<string, unknown>)[key] = value;
+	}
+
+	return merged;
 }
 
 export function getSection<K extends SiteContentKey>(key: K, coupleNames?: string): SiteContent[K] {

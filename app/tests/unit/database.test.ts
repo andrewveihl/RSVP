@@ -28,6 +28,7 @@ import {
 } from '$shared/db/stats';
 import { getDb } from '$shared/db/connection';
 import { MIGRATIONS, migrate } from '$shared/db/schema';
+import { asImageId, asRows, asText } from '$shared/content-rows';
 import { visibleDetailsRows } from '$shared/details';
 import { isPartyGrouped, partyGroups, partyInitial, visiblePartyMembers } from '$shared/party';
 import { localDayKey } from '$shared/format';
@@ -397,12 +398,84 @@ describe('site content', () => {
 		expect(getSection('hero').title).toBeTruthy();
 	});
 
+	/**
+	 * A stored `null` used to win over the default, because the merge was a spread.
+	 * That is not a small matter: `hexToTriplet(theme.accent)` runs in the root layout
+	 * of every guest page, so one null in this document answered 500 for the whole site.
+	 */
+	it('does not let a stored null override a default', () => {
+		getDb()
+			.prepare("INSERT INTO site_content (key, value, updated_at) VALUES ('theme', ?, '2027-01-01')")
+			.run(JSON.stringify({ accent: null, ink: undefined, fonts: 'sans-sans' }));
+
+		const theme = getSection('theme');
+
+		expect(theme.accent).toBe(defaultSiteContent().theme.accent);
+		expect(theme.ink).toBe(defaultSiteContent().theme.ink);
+		// The key that actually said something is still honoured.
+		expect(theme.fonts).toBe('sans-sans');
+	});
+
+	it('keeps a deliberately empty value, which is a real answer', () => {
+		setSection('gallery', { ...defaultSiteContent().gallery, intro: '' });
+		expect(getSection('gallery').intro).toBe('');
+	});
+
+	it('ignores a stored key this version has never heard of', () => {
+		getDb()
+			.prepare("INSERT INTO site_content (key, value, updated_at) VALUES ('gallery', ?, '2027-01-01')")
+			.run(JSON.stringify({ heading: 'Photos', somethingFromTheFuture: { a: 1 } }));
+
+		expect(getSection('gallery')).not.toHaveProperty('somethingFromTheFuture');
+		expect(getSection('gallery').heading).toBe('Photos');
+	});
+
 	it('resets a section back to its default', () => {
 		setSection('announcement', 'Venue changed');
 		expect(getSection('announcement')).toBe('Venue changed');
 
 		resetSection('announcement');
 		expect(getSection('announcement')).toBe('');
+	});
+});
+
+/**
+ * `mergeSection` fills in top-level keys a stored document is missing, but it never
+ * looks inside an array -- so nothing has vouched for what is in one. A keyed
+ * `{#each items as item (item.id)}` reads `.id` off every element before rendering
+ * anything, so a single null throws and takes the page down. That is how the Wedding
+ * Party page went down, and the same shape was waiting in Our Story, the FAQ, the
+ * registry and the invitation's own lines.
+ */
+describe('reading rows out of a stored content document', () => {
+	it('keeps the rows that are actually rows', () => {
+		expect(asRows([{ a: 1 }, { b: 2 }])).toHaveLength(2);
+	});
+
+	it('drops everything that could not be one', () => {
+		expect(asRows([null, undefined, 'text', 7, [], true, { ok: 1 }])).toEqual([{ ok: 1 }]);
+	});
+
+	it('answers an empty list for something that is not an array', () => {
+		expect(asRows('nope')).toEqual([]);
+		expect(asRows(null)).toEqual([]);
+		expect(asRows(undefined)).toEqual([]);
+		expect(asRows({ 0: 'a', length: 1 })).toEqual([]);
+	});
+
+	it('coerces text, keeping a deliberately empty string', () => {
+		expect(asText('hello')).toBe('hello');
+		expect(asText('')).toBe('');
+		expect(asText(null)).toBe('');
+		expect(asText(42)).toBe('');
+		expect(asText({})).toBe('');
+	});
+
+	it('accepts only a non-empty string as an image id', () => {
+		expect(asImageId('abc')).toBe('abc');
+		expect(asImageId('')).toBeNull();
+		expect(asImageId(42)).toBeNull();
+		expect(asImageId(null)).toBeNull();
 	});
 });
 

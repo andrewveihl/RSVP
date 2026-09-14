@@ -450,15 +450,25 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	// on the card it will end up.
 	const flow: FlowLine[] = [];
 
-	/** The couple's own lines for one slot, in the order they wrote them. */
+	/**
+	 * The couple's own lines for one slot, in the order they wrote them.
+	 *
+	 * Every field is checked rather than trusted. `lines` is an array inside a stored
+	 * JSON document, and `mergeSection` only fills in missing *top-level* keys -- it
+	 * never looks inside an array, so nothing has vouched for these. Getting that wrong
+	 * on a member of the wedding party once took a whole guest page down.
+	 */
 	const extras = (slot: 'top' | 'middle' | 'bottom') => {
-		for (const line of text.lines) {
-			if (line.slot !== slot || !line.text.trim()) continue;
+		for (const line of Array.isArray(text.lines) ? text.lines : []) {
+			if (!line || typeof line !== 'object') continue;
+
+			const value = typeof line.text === 'string' ? line.text : '';
+			if (line.slot !== slot || !value.trim()) continue;
 
 			const preferred = line.style === 'display' ? 13 : line.style === 'small' ? 8 : 10;
 			const face: FaceName = line.style === 'display' ? 'display' : 'body';
 
-			for (const part of wrap(line.text, face, preferred * scale, inner, measure)) {
+			for (const part of wrap(value, face, preferred * scale, inner, measure)) {
 				flow.push({
 					text: part,
 					face,
@@ -528,9 +538,16 @@ function fullCard(text: InvitationText, width: number, height: number, measure: 
 	// One block when the reception is at the ceremony venue, two when it is not. The
 	// labels only appear in the two-venue case: a card that says CEREMONY above its
 	// only address is answering a question nobody asked.
-	const hasReception = Boolean(text.receptionName.trim() || text.receptionAddress.trim());
+	// Coerced rather than trusted, for the same reason as the lines above: a card is
+	// rendered from a stored document, and one bad field must not be able to throw.
+	const str = (value: unknown) => (typeof value === 'string' ? value : '');
+	const hasReception = Boolean(str(text.receptionName).trim() || str(text.receptionAddress).trim());
 
-	const venueBlock = (label: string, name: string, address: string, first: boolean) => {
+	const venueBlock = (rawLabel: string, rawName: string, rawAddress: string, first: boolean) => {
+		const label = str(rawLabel);
+		const name = str(rawName);
+		const address = str(rawAddress);
+
 		if (!name.trim() && !address.trim()) return;
 
 		if (hasReception && label.trim()) {

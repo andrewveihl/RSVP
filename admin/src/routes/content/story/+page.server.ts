@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { asImageId, asRows, asText } from '$shared/content-rows';
 import { guard, isGuardFailure } from '$lib/server/guard';
 import { newRowId, readRows } from '$lib/server/content-forms';
 import { storeUpload } from '$lib/server/image-upload';
@@ -8,10 +9,26 @@ import { getConfig } from '$shared/config';
 import { cleanText } from '$shared/sanitize';
 import type { StoryMilestone } from '$shared/types';
 
-export const load: PageServerLoad = () => ({
-	story: getSection('story', getSetting('couple_names')),
-	siteUrl: getConfig().siteUrl
-});
+export const load: PageServerLoad = () => {
+	const story = getSection('story', getSetting('couple_names'));
+
+	return {
+		story: {
+			...story,
+			narrative: asText(story.narrative),
+			// See the party editor: normalised before the editor clones it into state,
+			// because the list is keyed on the milestone's id.
+			milestones: asRows(story.milestones).map((milestone, index) => ({
+				id: asText(milestone.id) || `milestone-${index}`,
+				date: asText(milestone.date),
+				title: asText(milestone.title),
+				description: asText(milestone.description),
+				imageId: asImageId(milestone.imageId)
+			}))
+		},
+		siteUrl: getConfig().siteUrl
+	};
+};
 
 export const actions: Actions = {
 	save: async (event) => {

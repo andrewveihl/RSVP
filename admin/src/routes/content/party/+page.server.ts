@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { asImageId, asRows, asText } from '$shared/content-rows';
 import { guard, isGuardFailure } from '$lib/server/guard';
 import { newRowId, readRows } from '$lib/server/content-forms';
 import { storeUpload } from '$lib/server/image-upload';
@@ -8,10 +9,27 @@ import { getConfig } from '$shared/config';
 import { cleanText } from '$shared/sanitize';
 import type { PartyMember } from '$shared/types';
 
-export const load: PageServerLoad = () => ({
-	party: getSection('party', getSetting('couple_names')),
-	siteUrl: getConfig().siteUrl
-});
+export const load: PageServerLoad = () => {
+	const party = getSection('party', getSetting('couple_names'));
+
+	return {
+		party: {
+			...party,
+			// Normalised before the editor clones it into state. The list is keyed on
+			// the member's id, so a null in this array throws before anything renders --
+			// and this is the screen somebody would come to in order to fix that.
+			members: asRows(party.members).map((member, index) => ({
+				id: asText(member.id) || `member-${index}`,
+				name: asText(member.name),
+				role: asText(member.role),
+				group: asText(member.group),
+				bio: asText(member.bio),
+				imageId: asImageId(member.imageId)
+			}))
+		},
+		siteUrl: getConfig().siteUrl
+	};
+};
 
 export const actions: Actions = {
 	save: async (event) => {

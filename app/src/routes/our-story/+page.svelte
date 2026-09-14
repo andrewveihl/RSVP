@@ -5,6 +5,8 @@
 	let { data }: { data: PageData } = $props();
 
 	const story = $derived(data.site.content.story);
+	// Normalised in the load: every milestone here has an id and usable fields.
+	const milestones = $derived(data.milestones);
 </script>
 
 <svelte:head>
@@ -17,11 +19,11 @@
 		<h1 class="mt-4 font-display text-4xl text-ink sm:text-5xl">{story.heading}</h1>
 	</header>
 
-	{#if story.milestones.length > 0}
+	{#if milestones.length > 0}
 		<!-- The rule runs down the left on mobile and through the middle from `sm` up,
 		     so the alternating layout only kicks in where there is room for it. -->
 		<ol class="relative mt-16 space-y-12 before:absolute before:inset-y-0 before:left-[7px] before:w-px before:bg-line sm:before:left-1/2">
-			{#each story.milestones as milestone, index (milestone.id)}
+			{#each milestones as milestone, index (milestone.id)}
 				<li
 					use:reveal={{ delay: index * 80 }}
 					class="relative pl-9 sm:grid sm:grid-cols-2 sm:gap-10 sm:pl-0"

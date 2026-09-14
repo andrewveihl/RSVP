@@ -10,6 +10,12 @@ import type { ThemeContent } from './types';
 
 /** Parses `#rgb` or `#rrggbb` into the `R G B` triplet the variables expect. */
 export function hexToTriplet(hex: string): string | null {
+	// Typed as a string and checked anyway. Every caller ultimately hands this a value
+	// out of a stored JSON document, and this one runs in the root layout of every
+	// guest page -- so a value that is not a string has to answer "not a colour"
+	// rather than throw, or the whole site goes down with it.
+	if (typeof hex !== 'string') return null;
+
 	const value = hex.trim().replace(/^#/, '');
 
 	const full =
